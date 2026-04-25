@@ -1,0 +1,33 @@
+{
+  "apiName": "jsonplaceholder",
+  "docsUrl": "https://jsonplaceholder.typicode.com",
+  "crawledUrls": [
+    "https://jsonplaceholder.typicode.com",
+    "https://jsonplaceholder.typicode.com/guide/"
+  ],
+  "contentHash": "sha256:exemplar-static-not-from-live-fetch",
+  "generatedAt": "2026-04-26T00:00:00Z",
+  "clifyVersion": "0.2.0",
+  "nodeMinVersion": "20",
+  "auth": {
+    "envVar": "JSONPLACEHOLDER_API_KEY",
+    "scheme": "none",
+    "validationCommand": "posts list"
+  },
+  "defaults": [],
+  "nuances": {
+    "pagination": null,
+    "rateLimits": false,
+    "authScopes": false,
+    "deprecated": [],
+    "idempotency": [],
+    "multiPart": [],
+    "conditional": [],
+    "businessRules": 1
+  },
+  "coverage": {
+    "totalParsed": 6,
+    "totalIncluded": 6,
+    "totalDropped": 0
+  }
+}

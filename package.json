@@ -1,18 +1,25 @@
 {
   "name": "clify",
-  "version": "0.1.0",
-  "description": "Generate self-updating CLI repos from API documentation URLs.",
+  "version": "0.2.0",
+  "description": "Generate A+ Node.js CLIs from API documentation. Copy a hand-crafted exemplar, mechanically substitute API-specific content, then verify with a deterministic validation gate.",
   "type": "module",
+  "bin": {
+    "clify": "./bin/clify.mjs"
+  },
   "engines": {
     "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "validate-exemplar": "node bin/clify.mjs validate examples/jsonplaceholder-cli"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/derrickko/clify.git"
+    "url": "git+https://github.com/codeyogi911/clify.git"
   },
-  "homepage": "https://github.com/derrickko/clify",
+  "homepage": "https://github.com/codeyogi911/clify",
   "bugs": {
-    "url": "https://github.com/derrickko/clify/issues"
+    "url": "https://github.com/codeyogi911/clify/issues"
   }
 }

@@ -1,13 +1,19 @@
 {
   "name": "clify",
-  "version": "0.1.0",
-  "description": "Generate self-updating CLI repos from API documentation URLs. Produces Node.js CLIs with agent framework wrappers, smoke tests, and a self-learning knowledge system.",
+  "version": "0.2.0",
+  "description": "Generate A+ Node.js CLIs from API documentation. Copy a hand-crafted exemplar, mechanically substitute API-specific content, then verify with a deterministic validation gate.",
   "author": {
-    "name": "Derrick",
-    "url": "https://github.com/derrickko"
+    "name": "codeyogi911",
+    "url": "https://github.com/codeyogi911"
   },
-  "homepage": "https://github.com/derrickko/clify",
-  "repository": "https://github.com/derrickko/clify",
+  "homepage": "https://github.com/codeyogi911/clify",
+  "repository": "https://github.com/codeyogi911/clify",
   "license": "MIT",
-  "keywords": ["cli-generator", "api", "openapi", "codegen", "agent"]
+  "keywords": ["cli-generator", "api", "openapi", "codegen", "agent"],
+  "skills": [
+    { "name": "clify-scaffold", "source": "skills/clify-scaffold/SKILL.md" },
+    { "name": "clify-validate", "source": "skills/clify-validate/SKILL.md" },
+    { "name": "clify-sync",     "source": "skills/clify-sync/SKILL.md" }
+  ],
+  "capabilities": ["network", "codegen", "file-write"]
 }
