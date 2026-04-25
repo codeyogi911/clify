@@ -61,7 +61,7 @@ Inside Claude Code:
 /clify-scaffold https://docs.example.com/api
 ```
 
-The skill walks the 13-step pipeline (fetch → parse → consult → init → substitute → validate → simplify → report) and produces `<api-name>-cli/` next to the current directory.
+The skill walks the 13-step pipeline (fetch → parse → consult → **ask where to put it** → init → substitute → validate → simplify → report). The generated CLI is **its own project**, in its own directory, with its own `git init` — by default a sibling of your current directory, but the skill asks before creating files. Output is `<chosen-parent>/<api-name>-cli/`, never nested inside the calling repo unless you explicitly ask for that.
 
 You can also call the binary verbs directly:
 

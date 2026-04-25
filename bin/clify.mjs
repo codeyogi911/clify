@@ -107,7 +107,7 @@ function runScaffoldInit(args) {
   try {
     const result = scaffoldInit({ apiName, target });
     if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
-    else process.stdout.write(`scaffolded ${result.apiName} → ${result.dir}\n`);
+    else process.stdout.write(`scaffolded ${result.apiName} → ${result.dir}\n  (next: cd into the dir, git init if you want history, then run /clify-scaffold's substitution phase)\n`);
   } catch (err) {
     process.stderr.write(`error: ${err.message}\n`);
     process.exit(1);

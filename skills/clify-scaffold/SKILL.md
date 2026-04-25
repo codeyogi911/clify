@@ -62,13 +62,34 @@ Second prose pass for non-endpoint rules (units, formats, defaults, sequencing, 
 
 Present findings to the user with opinionated recommendations. Use `AskUserQuestion` for unresolved tradeoffs (resource grouping, ambiguous verbs, what to drop). Record dropped endpoints with one of the allowed reasons (`user-excluded-step-7`, `deprecated-in-docs`, etc.) — never silently drop.
 
-### 8. Init repo from exemplar (binary verb)
+### 8. Decide where the new repo lives, then init from exemplar
+
+The generated CLI is its own project — a separate directory, not nested inside whatever repo the user happened to invoke `/clify-scaffold` from. Before running the binary verb, **ask the user with `AskUserQuestion`**:
+
+> "Where should I put `<api-name>-cli/`? Default is `<parent-of-cwd>` (sibling of your current directory). I'll also `git init` the new repo unless you say otherwise."
+
+Options to offer:
+- **Default** — parent of cwd (`..`), so the layout is `parent/<original-cwd>/` next to `parent/<api-name>-cli/`. Right answer for almost every case, including when the user runs the skill from inside the clify repo itself.
+- **Custom path** — user supplies an absolute or relative directory.
+- **Here (nested)** — only when the user is explicit; warn that this couples the new CLI's git history to the parent.
+
+Then run the binary verb with the chosen target:
 
 ```
-clify scaffold-init <api-name> --target <parent-dir>
+clify scaffold-init <api-name> --target <chosen-parent-dir>
 ```
 
-This is the **deterministic copy + rename phase** — never do it by hand. Copies `examples/jsonplaceholder-cli/` to `<parent-dir>/<api-name>-cli/` and rewrites `jsonplaceholder` → `<api-name>`, `JSONPLACEHOLDER` → `<API_NAME>`, `JSONPlaceholder` → `<API Title>` everywhere.
+This is the **deterministic copy + rename phase** — never do it by hand. Copies `examples/jsonplaceholder-cli/` to `<chosen-parent-dir>/<api-name>-cli/` and rewrites `jsonplaceholder` → `<api-name>`, `JSONPLACEHOLDER` → `<API_NAME>`, `JSONPlaceholder` → `<API Title>` everywhere.
+
+Print the resolved absolute path to the user so they can confirm before substantive content lands.
+
+After the copy, `git init` the new repo (skip if the user opted out):
+
+```
+cd <chosen-parent-dir>/<api-name>-cli && git init -q && git add -A && git commit -q -m "Initial scaffold from clify exemplar"
+```
+
+The initial commit makes step 9's substitutions a clean diff the user can review.
 
 ### 9. Substitute API-specific content
 
