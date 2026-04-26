@@ -4,7 +4,7 @@
   "crawledUrls": ["https://docs.exemplar.test/api/v1"],
   "contentHash": "sha256:exemplar-static-not-from-live-fetch",
   "generatedAt": "2026-04-26T00:00:00Z",
-  "clifyVersion": "0.3.0",
+  "clifyVersion": "0.4.0",
   "nodeMinVersion": "20",
   "auth": {
     "envVar": "EXEMPLAR_API_KEY",

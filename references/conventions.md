@@ -232,7 +232,7 @@ Root metadata, written by the scaffold skill, read by the validator and sync too
   "crawledUrls": ["https://docs.exemplar.test/api/v1"],
   "contentHash": "sha256:abc...",
   "generatedAt": "2026-04-26T00:00:00Z",
-  "clifyVersion": "0.3.0",
+  "clifyVersion": "0.4.0",
   "nodeMinVersion": "20",
   "auth": {
     "envVar": "EXEMPLAR_API_KEY",

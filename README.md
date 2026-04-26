@@ -48,7 +48,7 @@ Then verify the install — `/skills` should list `clify` as available, and the 
 
 ```
 clify --help
-clify --version            # 0.3.0
+clify --version            # 0.4.0
 ```
 
 Or clone and link for local development:
@@ -68,7 +68,7 @@ Inside Claude Code:
 /clify https://docs.example.com/api
 ```
 
-The skill walks six phases (fetch & detect → parse & group → consult → init → substitute → validate, simplify, report). The generated CLI is **its own project**, in its own directory, with its own `git init` — by default a sibling of your current directory, but the skill asks before creating files. Output is `<chosen-parent>/<api-name>-cli/`, never nested inside the calling repo unless you explicitly ask for that.
+The skill walks seven phases (fetch & detect → parse & group → consult → init → substitute → validate & simplify → verify & ship). The generated CLI is **its own project**, in its own directory, with its own `git init` — by default a sibling of your current directory, but the skill asks before creating files. Output is `<chosen-parent>/<api-name>-cli/`, never nested inside the calling repo unless you explicitly ask for that.
 
 You can also call the binary verbs directly:
 
@@ -127,7 +127,7 @@ clify/
 │   ├── validate.mjs                    validation gate impl
 │   ├── scaffold-init.mjs               file-copy + rename
 │   └── sync-check.mjs                  hash-diff
-├── skills/clify/SKILL.md               the 6-phase generation pipeline (lean)
+├── skills/clify/SKILL.md               the 7-phase generation pipeline (lean)
 ├── examples/
 │   ├── exemplar-cli/                   canonical A+ stencil
 │   └── legacy/jsonplaceholder-cli/     reference: simple-API single-skill shape
