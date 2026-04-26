@@ -1,5 +1,5 @@
 // Global flag splitter + per-action arg-spec helpers.
-export const GLOBAL_FLAGS = new Set(["--json", "--dry-run", "--version", "-v", "--verbose", "--all"]);
+export const GLOBAL_FLAGS = new Set(["--json", "--dry-run", "--version", "-v", "--verbose", "--all", "--show-secrets"]);
 
 export function splitGlobal(argv) {
   const global = {};
@@ -10,6 +10,7 @@ export function splitGlobal(argv) {
       global[key] = true;
       if (arg === "-v") global.version = true;
       if (arg === "--dry-run") global.dry_run = true;
+      if (arg === "--show-secrets") global.show_secrets = true;
     } else {
       rest.push(arg);
     }

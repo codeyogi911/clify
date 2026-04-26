@@ -3,17 +3,33 @@
   "url": "https://www.zoho.com/inventory/api/v1/introduction/",
   "description": "Zoho Inventory: a real-world test that exercises every nuance the scaffolder should handle — OAuth refresh, multi-region routing, offset pagination, multipart uploads, composite resources, plan-tier rate limits.",
   "expected": {
-    "auth_scheme": "oauth2-refresh",
-    "auth_scheme_fallbacks": ["bearer"],
+    "auth_scheme": "oauth-refresh",
+    "auth_scheme_fallbacks": [],
     "resources_min": 8,
     "must_include_nuances": ["pagination", "multi-region", "rate-limit"],
     "must_have_knowledge_files": ["oauth-refresh", "multi-region", "composite-items"],
+    "must_have_resources": [
+      "invoices",
+      "credit-notes",
+      "vendor-credits",
+      "retainer-invoices",
+      "sales-orders",
+      "tasks",
+      "contacts"
+    ],
+    "must_have_sibling_actions": {
+      "comments": ["invoices", "credit-notes", "vendor-credits", "retainer-invoices", "sales-orders", "tasks"]
+    },
     "must_pass_validation_gate": true,
+    "must_pass_verification_subagent": true,
     "structural_similarity_to_exemplar": 0.85
   },
   "rubric": {
-    "structural_similarity": "Files: bin/<api>-cli.mjs is a thin dispatcher; lib/{api,auth,output,config,args,help,env}.mjs are present; commands/<resource>.mjs files exist (one per resource); skills/<api>-cli-{workflow,auth,resources,knowledge}/SKILL.md all exist; knowledge/ has the listed files; .clify.json declares the listed nuances; tests pass.",
-    "code_quality": "Helper signatures match the exemplar (apiRequest, output, errorOut, splitGlobal, toParseArgs, checkRequired, paginate). Auth swapping is a registry edit, not a code rewrite. Pagination is a library iterator. No duplicated payload-building across actions of the same resource.",
-    "knowledge_correctness": "knowledge/oauth-refresh.md describes the actual Zoho refresh flow (refresh_token grant against accounts.zoho.<region>); knowledge/multi-region.md enumerates .com/.eu/.in/.com.au/.ca with their accounts vs api hosts; knowledge/composite-items.md notes the assembly-stock relationship."
+    "structural_similarity": "Files: bin/<api>-cli.mjs is a thin dispatcher and is mode 0755 in git; lib/{api,auth,output,config,args,help,env}.mjs are present; commands/<resource>.mjs files exist (one per resource); skills/<api>-cli-{workflow,auth,resources,knowledge}/SKILL.md all exist; knowledge/ has the listed files; .clify.json declares the listed nuances; tests pass.",
+    "code_quality": "Helper signatures match the exemplar (apiRequest, output, errorOut, splitGlobal, toParseArgs, checkRequired, paginate, redactHeaders). Auth swapping is a constant edit, not a code rewrite — generated lib/auth.mjs MUST share the exemplar's function bodies for refreshAccessToken / resolveOAuthToken / applyAuth / authStatus. Pagination is a library iterator. No duplicated payload-building across actions of the same resource. Dry-run output redacts auth headers (no leaked credential-shaped value).",
+    "knowledge_correctness": "knowledge/oauth-refresh.md describes the actual Zoho refresh flow (refresh_token grant against accounts.zoho.<region>); knowledge/multi-region.md enumerates .com/.eu/.in/.com.au/.ca with their accounts vs api hosts; knowledge/composite-items.md notes the assembly-stock relationship.",
+    "family_consistency": "/comments must be present on at least 5 of {invoices, credit-notes, vendor-credits, retainer-invoices, sales-orders, tasks, contacts}. Any sibling that lacks /comments must have an explicit coverage.json entry with reason 'sibling-asymmetry-confirmed'. Status-mutation endpoints (POST /<r>/:id/status/<state>) all use the canonical mark-<state> action name.",
+    "readme_structure": "README.md leads with ## Install (npm install + npm link + smoke `--version` check) and ## Authenticate (OAuth env-var path AND `<bin> login --refresh-token --client-id --client-secret` path). Both sections appear before any other ## heading.",
+    "verification_subagent": "Phase 7 subagent reports ok=true with all checklist items PASS: bin executable, dry-run no-leak, README structure, OAuth wiring (TOKEN_URL is accounts.zoho.<dc>, not the exemplar default), family-consistency, status-verb canonical, no hand-rolled OAuth function bodies."
   }
 }

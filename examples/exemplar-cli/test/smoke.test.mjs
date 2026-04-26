@@ -2,9 +2,10 @@
 // Verifies CLI shape: --version, --help breadth, error semantics, --dry-run.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { run, runJson, REPO_ROOT } from "./_helpers.mjs";
+import { run, runJson, REPO_ROOT, CLI } from "./_helpers.mjs";
 
 const RESOURCES = ["items", "item-variants", "orders"];
 const ITEMS_ACTIONS = ["list", "get", "create", "update", "delete"];
@@ -74,10 +75,41 @@ test("--dry-run does not make network requests", async () => {
   assert.equal(r.json.method, "GET");
 });
 
+const SECRET_PATTERNS = [
+  /sk_live_[A-Za-z0-9]{20,}/,
+  /ghp_[A-Za-z0-9]{20,}/,
+  /Bearer\s+[A-Za-z0-9_\-]{30,}/,
+  /xoxb-[A-Za-z0-9-]{20,}/,
+];
+
 test("source has no hardcoded secrets", () => {
   const src = readFileSync(join(REPO_ROOT, "bin/exemplar-cli.mjs"), "utf8");
-  const PATTERNS = [/sk_live_[A-Za-z0-9]{20,}/, /ghp_[A-Za-z0-9]{20,}/, /Bearer\s+[A-Za-z0-9_\-]{30,}/, /xoxb-[A-Za-z0-9-]{20,}/];
-  for (const p of PATTERNS) assert.ok(!p.test(src), `secret pattern ${p} matched`);
+  for (const p of SECRET_PATTERNS) assert.ok(!p.test(src), `secret pattern ${p} matched`);
+});
+
+test("dry-run output does not leak credential-shaped values", async () => {
+  // Use a token that matches the Bearer-literal pattern (≥30 chars). Without
+  // redaction, this would surface as `Bearer <token>` in the dry-run JSON.
+  const r = await runJson(["items", "list", "--dry-run"], {
+    env: {
+      EXEMPLAR_API_KEY: "abcdef0123456789abcdef0123456789abcdef",
+      EXEMPLAR_BASE_URL: "http://127.0.0.1:1",
+    },
+  });
+  assert.equal(r.exitCode, 0, r.stderr);
+  const dump = JSON.stringify(r.json);
+  for (const p of SECRET_PATTERNS) assert.ok(!p.test(dump), `dry-run leaked pattern ${p}`);
+  assert.equal(r.json.headers.authorization, "<redacted>");
+});
+
+test("bin file is executable (exec-bit set)", () => {
+  const mode = statSync(CLI).mode;
+  assert.ok(mode & 0o111, `bin file mode ${mode.toString(8)} is missing the exec bit`);
+  // Also assert that the OS can launch it directly without `node` prefix.
+  // This catches the failure mode where mode bits exist on disk but the
+  // shebang or interpreter path is broken.
+  const out = execFileSync(CLI, ["--version"], { encoding: "utf8", env: { ...process.env, EXEMPLAR_API_KEY: "x" } });
+  assert.match(out.trim(), /^\d+\.\d+\.\d+/);
 });
 
 test("every resource × action is reachable via --help", async () => {

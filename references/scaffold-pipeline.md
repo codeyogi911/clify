@@ -1,6 +1,6 @@
 # Scaffold pipeline — per-phase detail
 
-The `clify` skill's six phases are summarized in `skills/clify/SKILL.md`. This file is the in-depth reference for each phase, covering edge cases and the file-by-file substitution checklist. Read it when the lean SKILL.md is too terse for the situation at hand — you don't need to load it on every scaffolding run.
+The `clify` skill's seven phases are summarized in `skills/clify/SKILL.md`. This file is the in-depth reference for each phase, covering edge cases and the file-by-file substitution checklist. Read it when the lean SKILL.md is too terse for the situation at hand — you don't need to load it on every scaffolding run.
 
 ---
 
@@ -46,6 +46,8 @@ If a fetched body is empty or shorter than ~200 bytes, the page is JS-rendered. 
 
 Anything else: use the API's own verb (`approve`, `cancel`, `merge-upstream`).
 
+**Status-mutation canonical naming (HARD-FAIL):** Endpoints matching `POST /<r>/:id/status/<state>` MUST map to action `mark-<state>` — no exceptions, no per-resource variation. The validator hard-fails on bare verbs (`void`, `confirm`) for status-mutation paths.
+
 ### Resource grouping
 
 Group by the first non-version path segment. `/v1/items/:id` → `items`. `/api/v2/customers/:id/orders` → `customers` with `orders` as a sub-resource (flatten to `customer-orders`).
@@ -53,6 +55,15 @@ Group by the first non-version path segment. `/v1/items/:id` → `items`. `/api/
 ### Nesting cap
 
 Two levels max — `<resource> <action>` or `<sub-resource> <action>`. Anything deeper gets flattened into a hyphenated resource name. If a single resource has more than ~10 actions, split it into sub-resources rather than packing them all into one command file.
+
+### Family-consistency check (HARD-FAIL in validator)
+
+After grouping endpoints by resource, group AGAIN by sub-path tail. Common shared sub-paths: `/comments`, `/attachments`, `/refunds`, `/tags`, `/notes`, `/metadata`. If ≥3 sibling resources expose the same sub-path (e.g. invoices, credit-notes, vendor-credits all have `/:id/comments`), then any sibling that shares the parent shape but LACKS that sub-path must be either:
+
+- **Included** — add the missing endpoints to that resource (default behaviour).
+- **Explicitly dropped** — record one entry per missing endpoint in `coverage.json` with `reason: "sibling-asymmetry-confirmed"` (only when the API genuinely lacks the sub-path for that sibling; verify against docs before using this).
+
+Why hard-fail: in the Fix Coffee Zoho rollout, `/comments` was generated for 5 of 7 sibling resources and silently skipped on the rest. Users had to hand-add the missing actions. The family-consistency check catches this at gate time.
 
 ### Nuance detection cheat sheet
 
@@ -157,7 +168,19 @@ Leave `loadEnv`, `splitGlobal`, `runResourceAction`, `interpolatePath`, `main` e
 
 ### `lib/auth.mjs`
 
-Edit `SCHEME` and `ENV_VAR` constants. Add a branch in `applyAuth` if your scheme isn't already there. The validation gate accepts: `bearer | api-key-header | basic | none`. For OAuth-style flows that need refresh, model them as `bearer` — the refresh logic lives in `login.mjs`.
+The exemplar ships with FIVE schemes implemented: `bearer | api-key-header | basic | none | oauth-refresh`. Pick the right one by editing the `SCHEME` constant (which the exemplar guards with a `__EXEMPLAR_DEV_SCHEME` env fallback for testing — REPLACE the entire line with a hardcoded `const SCHEME = "<chosen>";` so generated CLIs never honor the env override).
+
+For `bearer | api-key-header | basic | none`: set `SCHEME` and `ENV_VAR`. Done.
+
+For `oauth-refresh` (Zoho, Google, Notion, GitHub Apps, Slack, Stripe Connect, …):
+
+1. Set `SCHEME = "oauth-refresh"`, `ENV_VAR = "<API>_API_KEY"`.
+2. Set the OAuth substitution constants — `TOKEN_URL`, `REFRESH_ENV`, `CLIENT_ID_ENV`, `CLIENT_SECRET_ENV`, `NO_CACHE_ENV` — to the API's prefix.
+3. Set `OAUTH_WIRE_PREFIX` (default `"Bearer"`; override for APIs like Zoho that use `"Zoho-oauthtoken"`).
+4. **Do NOT modify** `refreshAccessToken`, `resolveOAuthToken`, `applyAuth`, or `authStatus`. The exemplar's precedence (env access wins → env refresh creds mint → cache only when refreshTokenHash matches → stored creds → fail) is the contract. Re-rolling it has been the #1 source of generated-CLI auth bugs.
+5. Also update `.clify.json.auth.{tokenUrl, refreshEnvVar, clientIdEnvVar, clientSecretEnvVar}` — the validator hard-fails their absence under `oauth-refresh`.
+
+If the OAuth provider needs additional region/datacenter routing (e.g. Zoho's `accounts.zoho.<dc>` host), wrap `TOKEN_URL` in a small function that reads a `<API>_DC` env var and selects the right hostname; do not split into a separate auth flow. See `~/Repos/zoho-inventory-cli/lib/auth.mjs` for the reference DC-routing pattern (this is the only API-specific extension allowed in the OAuth file).
 
 ### `lib/api.mjs`
 
@@ -235,19 +258,23 @@ extracted: <YYYY-MM-DD>
 
 ### `README.md` and `AGENTS.md`
 
-Re-author resource lists, common workflows, error handling. Keep the structural sections (Layout, Use, Test).
+Re-author resource lists, common workflows, error handling. Keep the structural sections — and **lead with `## Install` and `## Authenticate`** before any other section. The validator hard-fails if either is missing.
+
+`## Install` — `git clone … && npm install && npm link && <bin> --version`. No more, no less.
+
+`## Authenticate` — scheme-aware. Static schemes show the env-var path AND the `<bin> login --token` path. `oauth-refresh` shows the three OAuth env vars (`<API>_REFRESH_TOKEN`, `<API>_CLIENT_ID`, `<API>_CLIENT_SECRET`), the `<API>_NO_CACHE` opt-out, AND the `<bin> login --refresh-token --client-id --client-secret` form. Reference: `examples/exemplar-cli/README.md`.
 
 ---
 
-## Phase 6: Validate, simplify, report
+## Phase 6: Validate & simplify
 
 ### Failure remediation
 
-- **manifest** — fix the named field; cross-manifest mismatches usually mean `package.json` was edited but `plugin.json` wasn't.
-- **coverage** — every `included: false` needs `dropped: true` + a valid `reason`.
-- **structural** — a resource or action is in coverage but not in `--help`, or vice versa. Check the registry vs the help-text generator.
+- **manifest** — fix the named field; cross-manifest mismatches usually mean `package.json` was edited but `plugin.json` wasn't. `bin file is not executable` → run `chmod +x bin/<api>-cli.mjs` (the scaffold-init step does this automatically; if it's missing, the user generated outside `scaffold-init`).
+- **coverage** — every `included: false` needs `dropped: true` + a valid `reason`. `family-consistency: sibling-asymmetry` → either include the missing endpoints or add explicit drop entries with `reason: "sibling-asymmetry-confirmed"`. `status-mutation actions must use canonical mark-<state> naming` → rename the actions in `commands/<r>.mjs` and `coverage.json`.
+- **structural** — a resource or action is in coverage but not in `--help`, or vice versa. Check the registry vs the help-text generator. `README.md missing required section(s)` → add `## Install` and/or `## Authenticate`.
+- **secrets** — `dry-run output leaks credential-shaped value` → the LLM bypassed the exemplar's `redactHeaders` in `lib/api.mjs`. Restore the redaction; only `--show-secrets` opts out.
 - **nuances** — declared a hard-fail nuance but didn't add the artifact. Either add it or set the nuance to empty.
-- **secrets** — a real key pattern leaked. Remove it.
 - **ci** — `.github/workflows/test.yml` missing or doesn't run `npm test`.
 - **tests** — exemplar smoke/integration tests fail. Read `stderrTail` and fix the source.
 
@@ -263,15 +290,41 @@ After the gate passes, run `/simplify` over the files you edited. Look for:
 
 Don't break a contract from `conventions.md` to win clarity. The contracts win.
 
-### Report
+---
+
+## Phase 7: Verify (subagent pass) & ship
+
+The validator catches structural failures, but it can't catch "the LLM substituted the wrong env var" or "the OAuth `TOKEN_URL` is still the exemplar default". Phase 7 spawns an `Explore` subagent to audit the generated repo against an end-to-end checklist before the skill declares done.
+
+### Subagent prompt template
+
+> Audit the generated CLI at `<absolute-path>` against this checklist. Report each item as PASS / FAIL with one-line evidence. Do not modify files.
+>
+> 1. **Bin executable**: `stat -f %Lp bin/<api>-cli.mjs` returns `755` (or run the bin directly: `bin/<api>-cli.mjs --version` exits 0 without `node` prefix).
+> 2. **Dry-run secret redaction**: run `<bin> <pick-a-list-action> --dry-run --json` with a fake credential-shaped env var. Output must contain `"<redacted>"` for auth headers and must NOT contain the fake credential value.
+> 3. **README structure**: `README.md` contains `## Install` and `## Authenticate` headings, in order, before any other `##` heading.
+> 4. **OAuth wiring** (when `.clify.json.auth.scheme === "oauth-refresh"`): `lib/auth.mjs` `TOKEN_URL` is NOT the exemplar default (`api.exemplar.test/oauth/token`); `REFRESH_ENV` / `CLIENT_ID_ENV` / `CLIENT_SECRET_ENV` use the API's prefix; `.env.example` documents the three OAuth vars with `@required-when scheme=oauth-refresh` annotations.
+> 5. **Family-consistency**: re-group `coverage.json.endpoints` by sub-path tail. For each tail in `[comments, attachments, refunds, tags, notes, metadata]` exposed by ≥3 resources, every sibling either includes that sub-path OR has a `coverage.json` drop with `reason: "sibling-asymmetry-confirmed"`.
+> 6. **Status-verb canonical**: every `POST /<r>/:id/status/<state>` endpoint maps to action `mark-<state>` in `commands/<r>.mjs` and `coverage.json`.
+> 7. **No hand-rolled OAuth logic** (when scheme is oauth-refresh): `lib/auth.mjs`'s function bodies for `refreshAccessToken`, `resolveOAuthToken`, `applyAuth`, `authStatus` match the exemplar's structure (acceptable diffs: constants only). If the LLM extended these, FAIL with the offending file:line.
+>
+> Return a JSON object: `{ ok, items: [{ id, status, evidence }], blockers: [...] }`.
+
+### Acting on the report
+
+- All items PASS → ship: write the end-of-scaffold report and surface the repo path to the user.
+- Any FAIL → loop back to Phase 5 (Substitute), fix the offending files, re-run Phase 6 (Validate), then re-run Phase 7. Up to 2 retries. After that, surface the failures verbatim and stop — never claim done.
+
+### Report (final)
 
 End-of-scaffold summary should include:
 
 - API name + version (if known)
 - Resources × actions: how many, listed
-- Dropped endpoints: how many, with reasons
+- Dropped endpoints: how many, with reasons (group by reason for readability)
 - Declared nuances: which fields are non-empty in `.clify.json.nuances`
 - Knowledge files written: list
-- Validation gate result: pass/fail with categories
+- Validation gate result: pass with N checks
+- Verification subagent result: pass with N items
 - Path to generated repo
-- Next step: `cd <repo> && npm test`
+- Next steps: `cd <repo> && npm install && npm link && <bin> --help`

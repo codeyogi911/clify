@@ -2,3 +2,6 @@ node_modules/
 .env
 .docs-snapshot/
 .DS_Store
+
+# Ad-hoc CLI exports (e.g. .tar.gz unpack) — keep the main repo uncluttered
+out/

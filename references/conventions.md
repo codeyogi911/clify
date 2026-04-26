@@ -110,6 +110,85 @@ Reference impl: [`examples/exemplar-cli/test/_mock-server.mjs`](../examples/exem
 
 ---
 
+## Dry-Run Output
+
+`--dry-run` prints the request that *would* be sent without sending it. The dry-run JSON dump MUST NOT contain credential-shaped values.
+
+Rules:
+- The `Authorization`, `X-Api-Key`, `Proxy-Authorization`, `Cookie`, and `Set-Cookie` header keys are always replaced with `<redacted>`.
+- Any header key matching `/(token|secret|key|cookie|auth|password)/i` is also replaced with `<redacted>`.
+- The opt-in `--show-secrets` flag suppresses redaction. It exists for debugging only and is never the default — never document it in user-facing workflows.
+- The `lib/api.mjs` reference impl shows the redaction pattern (see `redactHeaders`). The validation gate spawns `<bin> <r> list --dry-run --json` and scans output for credential patterns; any leak is a hard-fail.
+
+The redaction rule applies even to the body and URL: if the API encodes credentials in the URL (`?token=...`) or body, redact those fields too.
+
+---
+
+## Auth (OAuth-refresh)
+
+For APIs that use refresh-token grant (Zoho, Google, Notion, GitHub Apps, Slack, Stripe Connect, …), set `auth.scheme: "oauth-refresh"` in `.clify.json` and rely on the exemplar's built-in `oauth-refresh` branch in `lib/auth.mjs`. **Never re-author the OAuth logic.** The exemplar handles refresh, expiry, and the precedence rules below; the LLM only substitutes API-specific constants:
+
+```js
+const TOKEN_URL = "https://accounts.<provider>/oauth/v2/token";
+const REFRESH_ENV = "<API>_REFRESH_TOKEN";
+const CLIENT_ID_ENV = "<API>_CLIENT_ID";
+const CLIENT_SECRET_ENV = "<API>_CLIENT_SECRET";
+const NO_CACHE_ENV = "<API>_NO_CACHE";
+const OAUTH_WIRE_PREFIX = "Bearer";  // some APIs override (e.g. "Zoho-oauthtoken")
+```
+
+`.clify.json` declares the matching wiring fields (the validator hard-fails their absence under `oauth-refresh`):
+
+```json
+"auth": {
+  "scheme": "oauth-refresh",
+  "envVar": "<API>_API_KEY",
+  "tokenUrl": "https://accounts.<provider>/oauth/v2/token",
+  "refreshEnvVar": "<API>_REFRESH_TOKEN",
+  "clientIdEnvVar": "<API>_CLIENT_ID",
+  "clientSecretEnvVar": "<API>_CLIENT_SECRET",
+  "validationCommand": "<resource> <action>"
+}
+```
+
+### Precedence (exemplar enforces — DO NOT diverge)
+
+When `applyAuth` is called under `oauth-refresh`:
+
+1. `process.env[<API>_API_KEY]` — pre-minted access token. Wins over everything.
+2. Env refresh creds (`<API>_REFRESH_TOKEN` + `<API>_CLIENT_ID` + `<API>_CLIENT_SECRET`) → mint via `TOKEN_URL`. Env always trumps cache.
+3. Cached access token from `~/.config/<api>-cli/credentials.json` — **only** if the cache's `refreshTokenHash` matches the current source's refresh token. Account-switch protection: if a previous run cached a token under refresh-A and the current env has refresh-B, the cache is invalidated rather than reused.
+4. Stored refresh creds → mint.
+5. Legacy stored static `token` (from `<bin> login --token`).
+6. Fail with `auth_missing` (NOT `auth_invalid`).
+
+### NO_CACHE
+
+`<API>_NO_CACHE=1` (or `=true`) skips writing `credentials.json` after a successful refresh. Required for ephemeral CI runs and account-switching flows where on-disk cache is undesired. The exemplar reads this env var inside the OAuth branch — generated CLIs must preserve the behaviour.
+
+### Status-mutation actions: canonical naming
+
+Every endpoint matching `POST /<r>/:id/status/<state>` MUST map to action `mark-<state>`. No exceptions, no per-resource variation. The validator hard-fails on `void` / `confirm` / `<state>` (bare verb) when the path matches the status-mutation pattern.
+
+| Path | Action |
+|------|--------|
+| `POST /invoices/:id/status/sent` | `mark-sent` |
+| `POST /invoices/:id/status/void` | `mark-void` |
+| `POST /sales-orders/:id/status/confirmed` | `mark-confirmed` |
+
+---
+
+## README Structure (generated repos)
+
+Every generated repo's `README.md` MUST have these two sections, in order, before any other:
+
+1. **`## Install`** — git clone, `npm install`, `npm link`, smoke check (`<bin> --version`).
+2. **`## Authenticate`** — env-var path AND `<bin> login` path. Scheme-aware: static schemes show `--token`; `oauth-refresh` shows the three OAuth flags and the env-var triplet.
+
+After those two, the existing `## Layout` / `## Use` / `## Test` sections follow. Reference: [`examples/exemplar-cli/README.md`](../examples/exemplar-cli/README.md). The validator scans heading lines and hard-fails if either section is absent.
+
+---
+
 ## Structured Error Output
 
 ```json
@@ -179,7 +258,7 @@ Root metadata, written by the scaffold skill, read by the validator and sync too
 }
 ```
 
-`auth.scheme` ∈ `bearer | api-key-header | basic | none`. `auth` is required (use `none` scheme for auth-free APIs); `defaults` defaults to `[]`.
+`auth.scheme` ∈ `bearer | api-key-header | basic | none | oauth-refresh`. `auth` is required (use `none` scheme for auth-free APIs); `defaults` defaults to `[]`. For `oauth-refresh`, see the **Auth (OAuth-refresh)** section above for the additional required wiring fields (`tokenUrl`, `refreshEnvVar`, `clientIdEnvVar`, `clientSecretEnvVar`).
 
 ### Sync Behavior
 
@@ -205,7 +284,7 @@ Root metadata, written by the scaffold skill, read by the validator and sync too
 }
 ```
 
-Allowed drop reasons: `user-excluded-step-7`, `deprecated-in-docs`, `beta-flagged`, `internal-only`, `nesting-depth-cap`, `webhook-not-cli-shaped`, `streaming-not-cli-shaped`.
+Allowed drop reasons: `user-excluded-step-7`, `deprecated-in-docs`, `beta-flagged`, `internal-only`, `nesting-depth-cap`, `webhook-not-cli-shaped`, `streaming-not-cli-shaped`, `sibling-asymmetry-confirmed` (use only when an API genuinely lacks a sub-action that ≥3 sibling resources expose; see family-consistency rule).
 
 Validation gate fails if any entry has `included: false` without `dropped: true` + a valid `reason`. (Mapping correctness — one endpoint to N actions, merged endpoints — is out of scope for v0.2.)
 
@@ -310,7 +389,7 @@ The exemplar shape (preferred — every newly generated CLI inherits it):
 ```
 bin/<api>-cli.mjs           thin dispatcher
 lib/api.mjs                 apiRequest + cursor pagination iterator
-lib/auth.mjs                pluggable auth (bearer | api-key-header | basic | none)
+lib/auth.mjs                pluggable auth (bearer | api-key-header | basic | none | oauth-refresh)
 lib/output.mjs              output() + errorOut()
 lib/config.mjs              ~/.config/<api>-cli/credentials.json store (used by login)
 lib/env.mjs                 .env loader (zero-dep)
@@ -347,11 +426,13 @@ Resources, actions, and the registry that maps them to method/path/flags all liv
 `lib/auth.mjs` exports `applyAuth(headers)`. The function:
 
 1. Reads `process.env.<API>_API_KEY` (or stored credential from `lib/config.mjs`).
-2. Branches on `SCHEME` — one of `bearer | api-key-header | basic | none`.
+2. Branches on `SCHEME` — one of `bearer | api-key-header | basic | none | oauth-refresh`.
 3. Mutates the `headers` map with the right header.
 4. Returns `{ ok, reason }` so `apiRequest` can fail fast with `auth_missing`.
 
 Adding a new scheme is a registry edit — branch on `SCHEME`, set the header, done. Don't fork `apiRequest`.
+
+For `oauth-refresh`, the exemplar's `applyAuth` is async (it may await a refresh-token mint). `apiRequest` already `await`s it. See the **Auth (OAuth-refresh)** section earlier in this file for the precedence rules and the `<API>_NO_CACHE` env var.
 
 ### Modular skills
 

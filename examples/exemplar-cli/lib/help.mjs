@@ -3,7 +3,7 @@
 const CLI = "exemplar-cli";
 
 export function showRootHelp(version, registry) {
-  let out = `${CLI} ${version}\nCLI for the Exemplar API.\n\nUsage:\n  ${CLI} <resource> <action> [flags]\n  ${CLI} login [--token <t>] [--status]\n\nGlobal flags:\n  --json           Force JSON output\n  --dry-run        Print request without sending\n  --verbose        Print response status & headers to stderr\n  --all            Auto-paginate list actions\n  --version, -v    Print version\n  --help, -h       Show this help\n\nResources:\n`;
+  let out = `${CLI} ${version}\nCLI for the Exemplar API.\n\nUsage:\n  ${CLI} <resource> <action> [flags]\n  ${CLI} login [--token <t>] [--status]\n\nGlobal flags:\n  --json           Force JSON output\n  --dry-run        Print request without sending (auth headers redacted)\n  --show-secrets   With --dry-run, show real auth headers (debug only)\n  --verbose        Print response status & headers to stderr\n  --all            Auto-paginate list actions\n  --version, -v    Print version\n  --help, -h       Show this help\n\nResources:\n`;
   for (const r of Object.keys(registry).sort()) {
     out += `  ${r.padEnd(18)} ${Object.keys(registry[r]).join(", ")}\n`;
   }

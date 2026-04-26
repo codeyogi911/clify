@@ -9,7 +9,25 @@ import { applyAuth } from "./auth.mjs";
 
 export const BASE_URL = (process.env.EXEMPLAR_BASE_URL || "https://api.exemplar.test").replace(/\/$/, "");
 
-export async function apiRequest({ method, path, query, body, headers = {}, dryRun, verbose, idempotencyKey, ifMatch, file, version = "0.0.0" }) {
+// Header keys that always carry credentials. Always redacted in dry-run
+// output unless `showSecrets` is explicitly true.
+const SECRET_HEADER_KEYS = new Set(["authorization", "x-api-key", "proxy-authorization", "cookie", "set-cookie"]);
+const SECRET_KEY_PATTERN = /(token|secret|key|cookie|auth|password)/i;
+
+function redactHeaders(headers) {
+  const out = {};
+  for (const [k, v] of Object.entries(headers)) {
+    const lower = k.toLowerCase();
+    if (SECRET_HEADER_KEYS.has(lower) || SECRET_KEY_PATTERN.test(lower)) {
+      out[k] = "<redacted>";
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+export async function apiRequest({ method, path, query, body, headers = {}, dryRun, verbose, idempotencyKey, ifMatch, file, version = "0.0.0", showSecrets = false }) {
   const url = new URL(BASE_URL + path);
   if (query) {
     for (const [k, v] of Object.entries(query)) {
@@ -18,8 +36,11 @@ export async function apiRequest({ method, path, query, body, headers = {}, dryR
   }
 
   const reqHeaders = { "user-agent": `exemplar-cli/${version}`, ...headers };
-  const auth = applyAuth(reqHeaders);
-  if (!auth.ok) errorOut("auth_missing", `Set EXEMPLAR_API_KEY (or run 'exemplar-cli login') to authenticate.`);
+  const auth = await applyAuth(reqHeaders);
+  if (!auth.ok) {
+    const detail = auth.reason && auth.reason !== "auth_missing" ? ` (${auth.reason})` : "";
+    errorOut("auth_missing", `Set EXEMPLAR_API_KEY (or run 'exemplar-cli login') to authenticate.${detail}`);
+  }
 
   let reqBody;
   if (file) {
@@ -38,7 +59,8 @@ export async function apiRequest({ method, path, query, body, headers = {}, dryR
   if (ifMatch) reqHeaders["if-match"] = ifMatch;
 
   if (dryRun) {
-    return { __dryRun: true, method, url: url.toString(), headers: reqHeaders, body: body ?? null };
+    const safeHeaders = showSecrets ? reqHeaders : redactHeaders(reqHeaders);
+    return { __dryRun: true, method, url: url.toString(), headers: safeHeaders, body: body ?? null };
   }
 
   let res;
