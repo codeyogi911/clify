@@ -21,7 +21,7 @@ Exit code: 0 on pass, 1 on any failure. The scaffold skill calls this at step 11
 | `package.json` shape | `name`, `version`, `description`, `type: "module"`, `engines.node >= 20`, `bin` object, `scripts.test` |
 | `.claude-plugin/plugin.json` present | File exists |
 | `.claude-plugin/plugin.json` shape | `name`, `version`, `description`, `skills`, `capabilities` |
-| Skill `source` paths resolve | Every `skills[].source` points to an existing SKILL.md |
+| Skill paths resolve | `plugin.json.skills` (string path or array of paths per Claude Code schema) resolves to directories each containing a `SKILL.md` |
 | Skill frontmatter | Each SKILL.md begins with `---` and contains `name:` + `description:` |
 | `.claude-plugin/marketplace.json` present | File exists |
 | `.claude-plugin/marketplace.json` shape | `name`, `version`, `description`, `source` |
