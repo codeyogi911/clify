@@ -16,7 +16,12 @@ jobs:
       - name: clify unit tests
         run: npm test
       - name: validate exemplar
-        run: node bin/clify.mjs validate examples/jsonplaceholder-cli
+        run: node bin/clify.mjs validate examples/exemplar-cli
       - name: exemplar tests
-        working-directory: examples/jsonplaceholder-cli
+        working-directory: examples/exemplar-cli
         run: npm test
+      - name: scaffold-init smoke (full round-trip)
+        run: |
+          tmp=$(mktemp -d)
+          node bin/clify.mjs scaffold-init demo-api --target "$tmp"
+          node bin/clify.mjs validate "$tmp/demo-api-cli"

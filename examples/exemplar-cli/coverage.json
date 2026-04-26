@@ -1,0 +1,19 @@
+{
+  "parsedAt": "2026-04-26T00:00:00Z",
+  "totalParsed": 11,
+  "totalIncluded": 11,
+  "totalDropped": 0,
+  "endpoints": [
+    { "method": "GET",    "path": "/items",                     "resource": "items",          "action": "list",   "included": true },
+    { "method": "GET",    "path": "/items/:id",                 "resource": "items",          "action": "get",    "included": true },
+    { "method": "POST",   "path": "/items",                     "resource": "items",          "action": "create", "included": true },
+    { "method": "PATCH",  "path": "/items/:id",                 "resource": "items",          "action": "update", "included": true },
+    { "method": "DELETE", "path": "/items/:id",                 "resource": "items",          "action": "delete", "included": true },
+    { "method": "GET",    "path": "/items/:itemId/variants",    "resource": "item-variants",  "action": "list",   "included": true },
+    { "method": "POST",   "path": "/items/:itemId/variants",    "resource": "item-variants",  "action": "create", "included": true },
+    { "method": "GET",    "path": "/orders",                    "resource": "orders",         "action": "list",   "included": true },
+    { "method": "GET",    "path": "/orders/:id",                "resource": "orders",         "action": "get",    "included": true },
+    { "method": "POST",   "path": "/orders",                    "resource": "orders",         "action": "create", "included": true },
+    { "method": "POST",   "path": "/orders/:id/upload",         "resource": "orders",         "action": "upload", "included": true }
+  ]
+}

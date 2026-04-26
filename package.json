@@ -1,7 +1,7 @@
 {
   "name": "clify",
-  "version": "0.2.0",
-  "description": "Generate A+ Node.js CLIs from API documentation. Copy a hand-crafted exemplar, mechanically substitute API-specific content, then verify with a deterministic validation gate.",
+  "version": "0.3.0",
+  "description": "Generate A+ Node.js CLIs from API documentation. Copies a hand-crafted exemplar (structurally inspired by google/agents-cli), mechanically substitutes API-specific content, and verifies via a deterministic validation gate.",
   "type": "module",
   "bin": {
     "clify": "./bin/clify.mjs"
@@ -11,7 +11,9 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "validate-exemplar": "node bin/clify.mjs validate examples/jsonplaceholder-cli"
+    "test:exemplar": "cd examples/exemplar-cli && npm test",
+    "validate-exemplar": "node bin/clify.mjs validate examples/exemplar-cli",
+    "eval": "node bin/clify.mjs eval"
   },
   "license": "MIT",
   "repository": {
