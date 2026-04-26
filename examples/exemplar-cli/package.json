@@ -1,0 +1,10 @@
+{
+  "name": "exemplar-cli",
+  "version": "0.1.0",
+  "description": "Generic stencil for the clify scaffolder. Inspired structurally by google/agents-cli; hand-crafted, fully tested, and fictional.",
+  "type": "module",
+  "bin": { "exemplar-cli": "./bin/exemplar-cli.mjs" },
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test test/*.test.mjs" },
+  "license": "MIT"
+}

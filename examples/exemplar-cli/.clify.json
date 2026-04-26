@@ -1,0 +1,30 @@
+{
+  "apiName": "exemplar",
+  "docsUrl": "https://docs.exemplar.test/api/v1",
+  "crawledUrls": ["https://docs.exemplar.test/api/v1"],
+  "contentHash": "sha256:exemplar-static-not-from-live-fetch",
+  "generatedAt": "2026-04-26T00:00:00Z",
+  "clifyVersion": "0.3.0",
+  "nodeMinVersion": "20",
+  "auth": {
+    "envVar": "EXEMPLAR_API_KEY",
+    "scheme": "bearer",
+    "validationCommand": "items list"
+  },
+  "defaults": [],
+  "nuances": {
+    "pagination": "cursor",
+    "rateLimits": true,
+    "authScopes": false,
+    "deprecated": [],
+    "idempotency": ["items.create", "orders.create"],
+    "multiPart": ["orders.upload"],
+    "conditional": ["items.update"],
+    "businessRules": 1
+  },
+  "coverage": {
+    "totalParsed": 11,
+    "totalIncluded": 11,
+    "totalDropped": 0
+  }
+}

@@ -2,7 +2,7 @@
 
 Rules and contracts for generated CLI repos. Rigid contracts (error format, `.clify.json` shape, env var override) **must** be followed exactly. Flexible guidance (command structure, nesting) should be adapted to the API.
 
-The hand-crafted exemplar at [`examples/jsonplaceholder-cli/`](../examples/jsonplaceholder-cli/) is the canonical implementation of every rule below. When a contract here is ambiguous, the exemplar wins.
+The hand-crafted exemplar at [`examples/exemplar-cli/`](../examples/exemplar-cli/) is the canonical implementation of every rule below. When a contract here is ambiguous, the exemplar wins. The exemplar is structurally inspired by [`google/agents-cli`](https://github.com/google/agents-cli) — hierarchical subcommands, one file per resource under `commands/`, shared machinery under `lib/`, modular skills.
 
 ---
 
@@ -49,7 +49,7 @@ Parsed before resource routing. Use a known-set filter — never `parseArgs({ st
 | `--verbose` | false | Include request/response headers |
 | `--all` | false | Auto-paginate |
 
-Reference impl: [`examples/jsonplaceholder-cli/bin/jsonplaceholder-cli.mjs`](../examples/jsonplaceholder-cli/bin/jsonplaceholder-cli.mjs).
+Reference impl: [`examples/exemplar-cli/bin/exemplar-cli.mjs`](../examples/exemplar-cli/bin/exemplar-cli.mjs).
 
 ---
 
@@ -73,7 +73,7 @@ Reference impl: [`examples/jsonplaceholder-cli/bin/jsonplaceholder-cli.mjs`](../
 **Every generated CLI honors `<API_NAME>_BASE_URL` env var to redirect requests to a mock server.** Default is the real API base URL. Without this, integration tests cannot reach the mock; the validation gate fails generation that omits this.
 
 ```js
-const BASE_URL = process.env.JSONPLACEHOLDER_BASE_URL || "https://jsonplaceholder.typicode.com";
+const BASE_URL = process.env.EXEMPLAR_BASE_URL || "https://api.exemplar.test";
 ```
 
 The env var name is `<API_NAME_UPPER_SNAKE>_BASE_URL` — same prefix used for the API key and other defaults.
@@ -86,12 +86,12 @@ The env var name is `<API_NAME_UPPER_SNAKE>_BASE_URL` — same prefix used for t
 
 ```js
 const server = await mockApi({
-  "GET /posts":      { status: 200, body: [{ id: 1, title: "x" }] },
-  "GET /posts/:id":  (req, params) => ({ status: 200, body: { id: Number(params.id) } }),
-  "POST /posts":     (req) => ({ status: 201, body: { id: 101, ...req.body } }),
-  "GET /rate":       { status: 429, headers: { "retry-after": "30" } },
+  "GET /items":      { status: 200, body: { items: [{ id: "1" }], nextCursor: null } },
+  "GET /items/:id":  (req, params) => ({ status: 200, body: { id: params.id } }),
+  "POST /items":     (req) => ({ status: 201, body: { id: "new", ...req.body } }),
+  "GET /orders":     { status: 429, headers: { "retry-after": "30" } },
 });
-process.env.JSONPLACEHOLDER_BASE_URL = server.url;  // overrides default in CLI
+process.env.EXEMPLAR_BASE_URL = server.url;  // overrides default in CLI
 // ...run CLI, then:
 assert.equal(server.requests[0].headers.authorization, "Bearer test");
 await server.close();
@@ -106,7 +106,7 @@ Determinism rules (must hold on Node 20 and 22):
 - `close()` returns a Promise that resolves only after all sockets are drained.
 - Routes match `METHOD /path` exactly; `:param` placeholders extract path params; no regex.
 
-Reference impl: [`examples/jsonplaceholder-cli/test/_mock-server.mjs`](../examples/jsonplaceholder-cli/test/_mock-server.mjs).
+Reference impl: [`examples/exemplar-cli/test/_mock-server.mjs`](../examples/exemplar-cli/test/_mock-server.mjs).
 
 ---
 
@@ -148,32 +148,32 @@ Root metadata, written by the scaffold skill, read by the validator and sync too
 
 ```json
 {
-  "apiName": "jsonplaceholder",
-  "docsUrl": "https://jsonplaceholder.typicode.com",
-  "crawledUrls": ["https://jsonplaceholder.typicode.com/guide/"],
+  "apiName": "exemplar",
+  "docsUrl": "https://docs.exemplar.test/api/v1",
+  "crawledUrls": ["https://docs.exemplar.test/api/v1"],
   "contentHash": "sha256:abc...",
   "generatedAt": "2026-04-26T00:00:00Z",
-  "clifyVersion": "0.2.0",
+  "clifyVersion": "0.3.0",
   "nodeMinVersion": "20",
   "auth": {
-    "envVar": "JSONPLACEHOLDER_API_KEY",
-    "scheme": "none",
-    "validationCommand": "posts list"
+    "envVar": "EXEMPLAR_API_KEY",
+    "scheme": "bearer",
+    "validationCommand": "items list"
   },
   "defaults": [],
   "nuances": {
-    "pagination": null,
-    "rateLimits": false,
+    "pagination": "cursor",
+    "rateLimits": true,
     "authScopes": false,
     "deprecated": [],
-    "idempotency": [],
-    "multiPart": [],
-    "conditional": [],
-    "businessRules": 0
+    "idempotency": ["items.create", "orders.create"],
+    "multiPart": ["orders.upload"],
+    "conditional": ["items.update"],
+    "businessRules": 1
   },
   "coverage": {
-    "totalParsed": 6,
-    "totalIncluded": 6,
+    "totalParsed": 11,
+    "totalIncluded": 11,
     "totalDropped": 0
   }
 }
@@ -267,7 +267,7 @@ Setup lives in the generated SKILL.md — no CLI binary changes. The LLM follows
 | `@validation-command <res> <act>` | CLI command exercising this credential |
 | `@detect-command <res> <act>` | Lists possible values |
 
-Reference: [`examples/jsonplaceholder-cli/.env.example`](../examples/jsonplaceholder-cli/.env.example).
+Reference: [`examples/exemplar-cli/.env.example`](../examples/exemplar-cli/.env.example).
 
 ### Placeholder Detection
 
@@ -305,14 +305,66 @@ Generated SKILL.md preamble must include: **"Before running any command, read ev
 
 ### Code Structure
 
+The exemplar shape (preferred — every newly generated CLI inherits it):
+
 ```
-bin/<api>-cli.mjs        single-file CLI, all resources
-test/smoke.test.mjs      smoke tests
-test/integration.test.mjs mock-server-driven integration tests
-test/_mock-server.mjs    mock-server helper
+bin/<api>-cli.mjs           thin dispatcher
+lib/api.mjs                 apiRequest + cursor pagination iterator
+lib/auth.mjs                pluggable auth (bearer | api-key-header | basic | none)
+lib/output.mjs              output() + errorOut()
+lib/config.mjs              ~/.config/<api>-cli/credentials.json store (used by login)
+lib/env.mjs                 .env loader (zero-dep)
+lib/args.mjs                splitGlobal + parseArgs adapters
+lib/help.mjs                help-text generators (read the registry)
+commands/<resource>.mjs     one file per resource, default-exports { name, actions, buildPayload? }
+commands/login.mjs          token persistence + --status (only when scheme ≠ none)
+test/smoke.test.mjs         smoke tests
+test/integration.test.mjs   mock-server-driven integration tests
+test/auth.test.mjs          bearer/api-key wiring + login --status
+test/_mock-server.mjs       mock-server helper
+test/_helpers.mjs           run/runJson child-process harness
+```
+
+Legacy single-file shape (still passes the gate, but new generation uses the split above):
+
+```
+bin/<api>-cli.mjs           everything in one file
 ```
 
 Resource handlers are plain objects (not classes). One `apiRequest()` handles auth, dry-run, verbose, error mapping. Version read from package.json.
+
+### Hierarchical subcommands
+
+Every command is one of:
+
+- `<api>-cli <resource> <action> [flags]` — the default shape
+- `<api>-cli login [--token <t>] [--status]` — auth management (when scheme ≠ none)
+
+Resources, actions, and the registry that maps them to method/path/flags all live under `commands/<resource>.mjs`. The bin file imports each, builds a single `REGISTRY` object, and dispatches.
+
+### Pluggable auth
+
+`lib/auth.mjs` exports `applyAuth(headers)`. The function:
+
+1. Reads `process.env.<API>_API_KEY` (or stored credential from `lib/config.mjs`).
+2. Branches on `SCHEME` — one of `bearer | api-key-header | basic | none`.
+3. Mutates the `headers` map with the right header.
+4. Returns `{ ok, reason }` so `apiRequest` can fail fast with `auth_missing`.
+
+Adding a new scheme is a registry edit — branch on `SCHEME`, set the header, done. Don't fork `apiRequest`.
+
+### Modular skills
+
+Generated repos ship four skills under `skills/<api>-cli-<role>/SKILL.md`:
+
+| Skill | Purpose |
+|---|---|
+| `<api>-cli-workflow` | End-to-end workflows. Mentions every resource and the `knowledge/` dir. **The validation gate looks for this file.** |
+| `<api>-cli-auth` | Auth setup, login, troubleshooting 401/403 |
+| `<api>-cli-resources` | Resource × action × flag quick reference |
+| `<api>-cli-knowledge` | How to write and consume `knowledge/*.md` |
+
+The legacy single-skill layout (`skills/<api-slug>/SKILL.md`) still passes the validation gate as a fallback, but new generation uses the modular layout.
 
 ### Three-level help
 
@@ -342,7 +394,7 @@ Verify CLI structure, NOT API responses. Pass with no `.env` present.
 
 `node:test`. Helpers `run(...args)`, `runJson(...args)`. Strip API key from env in helper. 5s timeout.
 
-Reference: [`examples/jsonplaceholder-cli/test/smoke.test.mjs`](../examples/jsonplaceholder-cli/test/smoke.test.mjs).
+Reference: [`examples/exemplar-cli/test/smoke.test.mjs`](../examples/exemplar-cli/test/smoke.test.mjs).
 
 ---
 
@@ -359,7 +411,7 @@ For each resource, exercise every declared action against `_mock-server.mjs`:
 - Auth path (when scheme ≠ none): missing key → `auth_missing`; bad key → `auth_invalid`
 - Network down: dial unreachable port → `network_error`
 
-Reference: [`examples/jsonplaceholder-cli/test/integration.test.mjs`](../examples/jsonplaceholder-cli/test/integration.test.mjs).
+Reference: [`examples/exemplar-cli/test/integration.test.mjs`](../examples/exemplar-cli/test/integration.test.mjs).
 
 ---
 
@@ -371,7 +423,7 @@ Reference: [`examples/jsonplaceholder-cli/test/integration.test.mjs`](../example
 - Matrix: Node 20, 22
 - Step: `npm test` (runs both smoke and integration)
 
-Reference: [`examples/jsonplaceholder-cli/.github/workflows/test.yml`](../examples/jsonplaceholder-cli/.github/workflows/test.yml).
+Reference: [`examples/exemplar-cli/.github/workflows/test.yml`](../examples/exemplar-cli/.github/workflows/test.yml).
 
 ---
 
@@ -380,13 +432,19 @@ Reference: [`examples/jsonplaceholder-cli/.github/workflows/test.yml`](../exampl
 ```
 <api-name>-cli/
 ├── bin/<api-name>-cli.mjs
+├── lib/                              # api, auth, output, config, env, args, help
+├── commands/                         # one file per resource + login
 ├── skills/
-│   ├── <api-name>/SKILL.md
-│   └── sync/SKILL.md
-├── knowledge/                # initially has .gitkeep + any business-rules extracted
+│   ├── <api-name>-cli-workflow/SKILL.md     # primary; validate looks here
+│   ├── <api-name>-cli-auth/SKILL.md
+│   ├── <api-name>-cli-resources/SKILL.md
+│   └── <api-name>-cli-knowledge/SKILL.md
+├── knowledge/                        # business-rules + patterns extracted from docs
 ├── test/
 │   ├── smoke.test.mjs
 │   ├── integration.test.mjs
+│   ├── auth.test.mjs
+│   ├── _helpers.mjs
 │   └── _mock-server.mjs
 ├── .claude-plugin/
 │   ├── plugin.json
@@ -437,8 +495,10 @@ No dependencies. No devDependencies.
   "author": { "name": "<user>" },
   "license": "MIT",
   "skills": [
-    { "name": "<api-name>", "source": "skills/<api-name>/SKILL.md" },
-    { "name": "sync",       "source": "skills/sync/SKILL.md" }
+    { "name": "<api-name>-cli-workflow",  "source": "skills/<api-name>-cli-workflow/SKILL.md"  },
+    { "name": "<api-name>-cli-auth",      "source": "skills/<api-name>-cli-auth/SKILL.md"      },
+    { "name": "<api-name>-cli-resources", "source": "skills/<api-name>-cli-resources/SKILL.md" },
+    { "name": "<api-name>-cli-knowledge", "source": "skills/<api-name>-cli-knowledge/SKILL.md" }
   ],
   "capabilities": ["network"]
 }

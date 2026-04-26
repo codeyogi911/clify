@@ -1,0 +1,14 @@
+{
+  "name": "exemplar-cli",
+  "version": "0.1.0",
+  "description": "Generic stencil for the clify scaffolder. Inspired structurally by google/agents-cli; hand-crafted, fully tested, and fictional.",
+  "author": { "name": "clify" },
+  "license": "MIT",
+  "skills": [
+    { "name": "exemplar-cli-workflow",  "source": "skills/exemplar-cli-workflow/SKILL.md"  },
+    { "name": "exemplar-cli-auth",      "source": "skills/exemplar-cli-auth/SKILL.md"      },
+    { "name": "exemplar-cli-resources", "source": "skills/exemplar-cli-resources/SKILL.md" },
+    { "name": "exemplar-cli-knowledge", "source": "skills/exemplar-cli-knowledge/SKILL.md" }
+  ],
+  "capabilities": ["network"]
+}

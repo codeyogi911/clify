@@ -1,0 +1,7 @@
+{
+  "name": "exemplar-cli",
+  "description": "Generic stencil for the clify scaffolder. Inspired structurally by google/agents-cli; hand-crafted, fully tested, and fictional.",
+  "version": "0.1.0",
+  "author": { "name": "clify" },
+  "source": "./"
+}

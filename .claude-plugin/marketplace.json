@@ -7,8 +7,8 @@
   "plugins": [
     {
       "name": "clify",
-      "description": "Generate A+ Node.js CLIs from API documentation. Copy a hand-crafted exemplar, mechanically substitute API-specific content, then verify with a deterministic validation gate.",
-      "version": "0.2.0",
+      "description": "Generate A+ Node.js CLIs from API documentation. Copies a hand-crafted exemplar (structurally inspired by google/agents-cli), mechanically substitutes API-specific content, and verifies via a deterministic validation gate.",
+      "version": "0.3.0",
       "source": "./"
     }
   ]

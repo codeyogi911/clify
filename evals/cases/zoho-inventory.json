@@ -1,0 +1,19 @@
+{
+  "name": "zoho-inventory",
+  "url": "https://www.zoho.com/inventory/api/v1/introduction/",
+  "description": "Zoho Inventory: a real-world test that exercises every nuance the scaffolder should handle — OAuth refresh, multi-region routing, offset pagination, multipart uploads, composite resources, plan-tier rate limits.",
+  "expected": {
+    "auth_scheme": "oauth2-refresh",
+    "auth_scheme_fallbacks": ["bearer"],
+    "resources_min": 8,
+    "must_include_nuances": ["pagination", "multi-region", "rate-limit"],
+    "must_have_knowledge_files": ["oauth-refresh", "multi-region", "composite-items"],
+    "must_pass_validation_gate": true,
+    "structural_similarity_to_exemplar": 0.85
+  },
+  "rubric": {
+    "structural_similarity": "Files: bin/<api>-cli.mjs is a thin dispatcher; lib/{api,auth,output,config,args,help,env}.mjs are present; commands/<resource>.mjs files exist (one per resource); skills/<api>-cli-{workflow,auth,resources,knowledge}/SKILL.md all exist; knowledge/ has the listed files; .clify.json declares the listed nuances; tests pass.",
+    "code_quality": "Helper signatures match the exemplar (apiRequest, output, errorOut, splitGlobal, toParseArgs, checkRequired, paginate). Auth swapping is a registry edit, not a code rewrite. Pagination is a library iterator. No duplicated payload-building across actions of the same resource.",
+    "knowledge_correctness": "knowledge/oauth-refresh.md describes the actual Zoho refresh flow (refresh_token grant against accounts.zoho.<region>); knowledge/multi-region.md enumerates .com/.eu/.in/.com.au/.ca with their accounts vs api hosts; knowledge/composite-items.md notes the assembly-stock relationship."
+  }
+}

@@ -1,33 +1,35 @@
 #!/usr/bin/env node
 // clify — top-level CLI for the codegen plugin.
-// Verbs that do deterministic work: validate, scaffold-init, sync-check.
-// Verb that delegates to LLM: scaffold (informational, points to /clify-scaffold skill).
+// Verbs that do deterministic work: validate, scaffold-init, sync-check, eval.
+// Verb that delegates to LLM: scaffold (informational, points to the /clify skill).
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validate } from "../lib/validate.mjs";
 import { scaffoldInit } from "../lib/scaffold-init.mjs";
 import { syncCheck } from "../lib/sync-check.mjs";
+import { runEval, formatReport as formatEvalReport } from "../evals/run.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..");
 const VERSION = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8")).version;
 
 const HELP = `clify ${VERSION}
-Generate, validate, and sync agent-friendly CLIs from API documentation.
+Generate, validate, sync, and grade agent-friendly CLIs from API documentation.
 
 Usage:
   clify validate <dir>                 Run the validation gate (deterministic, no LLM)
   clify scaffold-init <api-name>       Copy the exemplar to <api-name>-cli/ and rename
                                        (use --target <dir> to choose parent directory)
   clify sync-check <dir>               Re-fetch docs, hash, print diff summary
-  clify scaffold <url>                 (LLM step) Use /clify-scaffold <url> in Claude Code
+  clify eval <case> [--repo <dir>]     Grade a candidate repo against an evals/cases/ file
+  clify scaffold <url>                 (LLM step) Use /clify <url> in Claude Code
   clify --version
   clify --help
 
-The validate, scaffold-init, and sync-check verbs are pure JS and reproducible across
-agent vendors. The scaffold verb is informational — full scaffold needs LLM judgment
-and runs as the /clify-scaffold skill in Claude Code.
+The validate, scaffold-init, sync-check, and eval verbs are pure JS and reproducible
+across agent vendors. The scaffold verb is informational — full scaffold needs LLM
+judgment and runs as the /clify skill in Claude Code.
 `;
 
 async function main() {
@@ -48,6 +50,7 @@ async function main() {
     case "validate": return await runValidate(rest);
     case "scaffold-init": return runScaffoldInit(rest);
     case "sync-check": return await runSyncCheck(rest);
+    case "eval":      return await runEvalVerb(rest);
     case "scaffold":   return runScaffoldInfo(rest);
     default:
       process.stderr.write(`error: unknown verb '${verb}'\n\n${HELP}`);
@@ -107,7 +110,7 @@ function runScaffoldInit(args) {
   try {
     const result = scaffoldInit({ apiName, target });
     if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
-    else process.stdout.write(`scaffolded ${result.apiName} → ${result.dir}\n  (next: cd into the dir, git init if you want history, then run /clify-scaffold's substitution phase)\n`);
+    else process.stdout.write(`scaffolded ${result.apiName} → ${result.dir}\n  (next: cd into the dir, git init if you want history, then run the /clify skill's substitution phase)\n`);
   } catch (err) {
     process.stderr.write(`error: ${err.message}\n`);
     process.exit(1);
@@ -137,7 +140,20 @@ async function runSyncCheck(args) {
 
 function runScaffoldInfo(args) {
   const url = args.find((a) => !a.startsWith("-")) || "<url>";
-  process.stdout.write(`Full scaffolding needs LLM judgment (parsing free-form docs, deciding endpoint→action mapping).\nRun in Claude Code:  /clify-scaffold ${url}\n\nThe scaffold skill calls 'clify scaffold-init' and 'clify validate' as deterministic\nsub-steps, but the parsing and substitution phases are LLM-driven.\n`);
+  process.stdout.write(`Full scaffolding needs LLM judgment (parsing free-form docs, deciding endpoint→action mapping).\nRun in Claude Code:  /clify ${url}\n\nThe clify skill calls 'clify scaffold-init' and 'clify validate' as deterministic\nsub-steps, but the parsing and substitution phases are LLM-driven.\n`);
+}
+
+async function runEvalVerb(args) {
+  const caseName = args.find((a) => !a.startsWith("-"));
+  if (!caseName) { process.stderr.write("Usage: clify eval <case> [--repo <dir>] [--skip-tests] [--json]\n"); process.exit(2); }
+  let repoDir;
+  for (let i = 0; i < args.length; i++) if (args[i] === "--repo" && args[i + 1]) repoDir = args[++i];
+  const skipTests = args.includes("--skip-tests");
+  const json = args.includes("--json");
+  const report = await runEval({ caseName, repoDir, skipTests });
+  if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+  else process.stdout.write(formatEvalReport(report));
+  process.exit(report.ok ? 0 : 1);
 }
 
 main().catch((err) => {
