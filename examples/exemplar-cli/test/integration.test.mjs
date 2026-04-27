@@ -219,39 +219,3 @@ test("user-agent header is sent", async () => {
   });
 });
 
-// ---------- queryFlags + brokenListFilters (clify v0.5 contract) ----------
-
-test("orders create routes --cartId to URL query, not body (queryFlags contract)", async () => {
-  await withMock({
-    "POST /orders": (req) => ({ status: 200, body: { id: "o-1", cartId: req.query.cartId, body_keys: Object.keys(req.body || {}) } }),
-  }, async (server) => {
-    const r = await runJson(["orders", "create", "--cartId", "CART-7", "--customerId", "C-1", "--notes", "n"], { env: { ...ENV, EXEMPLAR_BASE_URL: server.url } });
-    assert.equal(r.exitCode, 0, r.stderr);
-    assert.equal(server.requests[0].query.cartId, "CART-7");
-    assert.ok(!server.requests[0].body || server.requests[0].body.cartId === undefined,
-      `cartId leaked into body: ${JSON.stringify(server.requests[0].body)}`);
-    // Other body fields still flow through.
-    assert.equal(server.requests[0].body.customerId, "C-1");
-    assert.equal(server.requests[0].body.notes, "n");
-  });
-});
-
-test("orders list with --customerId falls back to client-side filter (brokenListFilters contract)", async () => {
-  await withMock({
-    "GET /orders": (req) => {
-      // The broken filter must NOT reach the wire.
-      if (req.query.customerId !== undefined) throw new Error(`broken filter leaked: ${req.query.customerId}`);
-      return { status: 200, body: { items: [
-        { id: "o-1", customerId: "C-1" },
-        { id: "o-2", customerId: "C-2" },
-        { id: "o-3", customerId: "C-1" },
-      ], nextCursor: null } };
-    },
-  }, async (server) => {
-    const r = await runJson(["orders", "list", "--customerId", "C-1"], { env: { ...ENV, EXEMPLAR_BASE_URL: server.url } });
-    assert.equal(r.exitCode, 0, r.stderr);
-    assert.equal(r.json.length, 2);
-    assert.deepEqual(r.json.map((x) => x.id), ["o-1", "o-3"]);
-    assert.match(r.stderr, /silently ignored upstream/);
-  });
-});

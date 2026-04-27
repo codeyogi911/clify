@@ -1,13 +1,16 @@
 ---
 type: contract
 source: clify v0.5
-applies-to: ["bin/<api>-cli.mjs", "commands/*.mjs"]
+applies-to: ["bin/<api>-cli.mjs", "commands/*.mjs", "lib/quirks.mjs"]
 ---
 
 # `queryFlags` and `brokenListFilters` action annotations
 
-Two action-def annotations let generated CLIs handle common upstream-API
-quirks without per-resource glue code in `bin/`.
+Two **opt-in** action-def annotations let generated CLIs handle common
+upstream-API quirks without per-resource glue code in `bin/`. The
+substrate (`lib/quirks.mjs` + the bin runtime) is generic and dormant
+unless a resource declares either annotation — the exemplar itself does
+NOT use them.
 
 ## `queryFlags` — convert-from-X creates
 

@@ -86,11 +86,16 @@ quirks without per-resource glue:
   a one-line `note: …` to stderr. Detect via probe: pass `FAKE-NONEXISTENT`
   and compare row count against the unfiltered baseline.
 
-Reference implementation: `examples/exemplar-cli/commands/orders.mjs`
-(`create.queryFlags = ["cartId"]` and `list.brokenListFilters = ["customerId"]`).
-Knowledge: [`knowledge/query-flags-and-broken-list-filters.md`](../examples/exemplar-cli/knowledge/query-flags-and-broken-list-filters.md).
-Tests: `orders create routes --cartId to URL query, not body` and
-`orders list with --customerId falls back to client-side filter`.
+Substrate lives in `examples/exemplar-cli/lib/quirks.mjs` (helpers:
+`pickQueryFlags`, `stripQueryFlags`, `pickBrokenFilters`, `clientFilter`)
+and is unit-tested in `test/quirks.test.mjs`. The exemplar's own resources
+do NOT pre-populate either annotation — the substrate is dormant unless a
+generated CLI opts in. For a worked real-world opt-in, see
+[`zoho-inventory-cli/commands/credit-notes.mjs`](https://github.com/codeyogi911/zoho-inventory-cli/blob/main/commands/credit-notes.mjs)
+(`create.queryFlags = ["invoice_id", "ignore_auto_number_generation"]`)
+and [`zoho-inventory-cli/commands/sales-returns.mjs`](https://github.com/codeyogi911/zoho-inventory-cli/blob/main/commands/sales-returns.mjs)
+(`brokenListFilters: [...]`).
+Contract: [`knowledge/query-flags-and-broken-list-filters.md`](../examples/exemplar-cli/knowledge/query-flags-and-broken-list-filters.md).
 
 ---
 

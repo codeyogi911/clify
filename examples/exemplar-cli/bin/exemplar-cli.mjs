@@ -15,6 +15,7 @@ import { splitGlobal, hasHelp, toParseArgs, checkRequired } from "../lib/args.mj
 import { output, errorOut } from "../lib/output.mjs";
 import { apiRequest, paginate } from "../lib/api.mjs";
 import { showRootHelp, showResourceHelp, showActionHelp } from "../lib/help.mjs";
+import { pickQueryFlags, stripQueryFlags, pickBrokenFilters, clientFilter } from "../lib/quirks.mjs";
 
 import items from "../commands/items.mjs";
 import itemVariants from "../commands/item-variants.mjs";
@@ -46,32 +47,14 @@ function interpolatePath(template, values) {
   return path;
 }
 
-// Action defs may declare:
-//   queryFlags: ["foreign_id"]        — flags that ride on the URL query, not body.
-//                                       Use for "convert-from-X" creates whose
-//                                       parent FK is a query parameter (the
-//                                       request body equivalent is silently
-//                                       dropped by some APIs — Zoho's
-//                                       POST /creditnotes ?invoice_id= is the
-//                                       canonical example).
-//   brokenListFilters: ["customer_id"] — list-action filters the upstream API
-//                                       silently ignores (returns 200 OK with
-//                                       the unfiltered list). Runtime drops
-//                                       them from the wire and falls back to
-//                                       client-side filter on the full list.
-function clientFilter(items, filters) {
-  const checks = Object.entries(filters);
-  return items.filter((row) =>
-    checks.every(([k, target]) => {
-      const v = row?.[k];
-      if (v === undefined || v === null) return false;
-      const a = String(v).toLowerCase();
-      const b = String(target).toLowerCase();
-      return a === b || a.includes(b);
-    }),
-  );
-}
-
+// Action defs may opt into two upstream-API-quirk handlers (see lib/quirks.mjs):
+//   queryFlags: ["foreignId"]         — routed onto the URL query, not body.
+//                                       For "convert-from-X" creates whose FK
+//                                       is a query parameter (Zoho example:
+//                                       POST /creditnotes ?invoice_id=).
+//   brokenListFilters: ["customerId"] — list filters the upstream API silently
+//                                       ignores. Runtime drops, full-list,
+//                                       client-side filter, stderr note.
 async function runResourceAction(resourceArg, actionArg, remaining, global, rest) {
   const def = REGISTRY[resourceArg][actionArg];
 
@@ -99,22 +82,13 @@ async function runResourceAction(resourceArg, actionArg, remaining, global, rest
       try { body = JSON.parse(parsed.values.body); }
       catch { errorOut("validation_error", "--body must be valid JSON"); }
     } else {
-      // queryFlags must not bleed into the body — they're routed to the URL.
-      const stripped = { ...parsed.values };
-      for (const k of def.queryFlags || []) delete stripped[k];
-      body = buildPayload(stripped);
+      body = buildPayload(stripQueryFlags(parsed.values, def));
     }
   }
 
   // Detect upstream-broken list filters: drop from the wire, full-list pull,
   // client-side filter, and stderr note so the user knows what happened.
-  const brokenFilters = (actionArg === "list" && Array.isArray(def.brokenListFilters))
-    ? Object.fromEntries(
-        def.brokenListFilters
-          .filter((k) => parsed.values[k] !== undefined && parsed.values[k] !== "")
-          .map((k) => [k, String(parsed.values[k])]),
-      )
-    : {};
+  const brokenFilters = actionArg === "list" ? pickBrokenFilters(parsed.values, def) : {};
   const hasBrokenFilters = Object.keys(brokenFilters).length > 0;
   if (hasBrokenFilters) {
     for (const k of Object.keys(brokenFilters)) parsed.values[k] = undefined;
@@ -149,12 +123,8 @@ async function runResourceAction(resourceArg, actionArg, remaining, global, rest
     for (const [k, v] of Object.entries(parsed.values)) {
       if (v !== undefined && k !== "id") query[k] = v;
     }
-  } else if (def.queryFlags && def.queryFlags.length) {
-    query = {};
-    for (const k of def.queryFlags) {
-      if (parsed.values[k] !== undefined && parsed.values[k] !== "") query[k] = parsed.values[k];
-    }
-    if (Object.keys(query).length === 0) query = undefined;
+  } else {
+    query = pickQueryFlags(parsed.values, def);
   }
 
   const result = await apiRequest({
