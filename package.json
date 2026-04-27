@@ -10,7 +10,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "node scripts/check-plugin-version.mjs && node --test test/*.test.mjs",
+    "check-versions": "node scripts/check-plugin-version.mjs",
     "test:exemplar": "cd examples/exemplar-cli && npm test",
     "validate-exemplar": "node bin/clify.mjs validate examples/exemplar-cli",
     "eval": "node bin/clify.mjs eval"
