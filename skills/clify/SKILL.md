@@ -66,6 +66,14 @@ Then `git init` the new repo and commit the unmodified scaffold so the next phas
 
 Edit only what changes per API. Preserve helper signatures (`apiRequest`, `output`, `errorOut`, `splitGlobal`, `toParseArgs`, `checkRequired`, help generators) verbatim from the exemplar. Per-file substitutions:
 
+> **Two action-def annotations to use during this phase** (see [`knowledge/query-flags-and-broken-list-filters.md`](../../examples/exemplar-cli/knowledge/query-flags-and-broken-list-filters.md) in the exemplar):
+>
+> - **`queryFlags: [...]`** — for any `POST` create whose docs list a foreign-key as a **URL query parameter** instead of a body field (e.g. Zoho's `POST /creditnotes ?invoice_id=`, `POST /salesreturns ?salesorder_id=`, `POST /vendorcredits ?bill_id=`). The body equivalent is silently dropped on these APIs and the resulting record has no FK to the source. Detect these in Phase 2 by reading the docs' "Query Parameters" table for every `POST` — anything that names a sibling-resource id goes here.
+>
+> - **`brokenListFilters: [...]`** — for any `GET …/list` filter the upstream API silently ignores (HTTP 200, full unfiltered list). Detect via probe: compare row count from `--<filter> FAKE-NONEXISTENT-XYZ` against unfiltered baseline. Equal counts → broken. The runtime drops the filter from the wire, fetches the full list, filters client-side, and prints a stderr note.
+>
+> Do NOT declare a filter in `flags` without checking it works against a live endpoint or against the docs. The pre-v0.5 exemplar guessed `listFilters` from naming convention; that produced CLIs that lied to users (filter passed → CLI shows help → API ignores it → user gets unfiltered results with no warning). The Fix Coffee Zoho rollout's `refund_cleanup_audit.py` mis-classified every SO as having returns until this was caught — the Phase 2 probe makes this a hard contract going forward.
+
 - `commands/<resource>.mjs` — replace the exemplar's items/orders/item-variants with the parsed resources. One file per resource. Each default-exports `{ name, actions, buildPayload? }`.
 - `bin/<api-name>-cli.mjs` — update the imports and `COMMANDS` array to reflect the new resource set; everything else stays.
 - `lib/auth.mjs` — set `SCHEME` and `ENV_VAR`. The exemplar implements all five schemes (`bearer | api-key-header | basic | none | oauth-refresh`). For `oauth-refresh`, set `TOKEN_URL`, `REFRESH_ENV`, `CLIENT_ID_ENV`, `CLIENT_SECRET_ENV`, `NO_CACHE_ENV`, and `OAUTH_WIRE_PREFIX` only — DO NOT modify `refreshAccessToken`, `resolveOAuthToken`, `applyAuth`, or `authStatus`. Replace the exemplar's `__EXEMPLAR_DEV_SCHEME` env-fallback line with a hardcoded `const SCHEME = "<chosen>";`.
@@ -112,6 +120,8 @@ Never declare done while either the gate or the verification subagent has unreso
 - Don't delete the `redactHeaders` call in `lib/api.mjs` — dry-run output must not leak credentials. The gate scans dry-run output and will hard-fail on a leak.
 - Don't write nuance prose into `knowledge/` if `.clify.json.nuances.*` isn't set; the gate cross-references them.
 - Don't put auth tokens in source. The gate scans for them and will flag real-shaped tokens.
+- Don't declare list-filter flags you haven't verified work upstream. Either probe them (FAKE-value vs baseline row counts) or omit them. If they're documented but silently ignored, declare them in `brokenListFilters` so the runtime falls back to a client-side filter; never silently expose a flag that lies.
+- Don't route a foreign-key into the body when the upstream docs list it as a query parameter on a `POST` create. Use `queryFlags` so the runtime puts it on the URL — most "convert from X" modes work ONLY via the query string and silently no-op via the body.
 
 ## Edge cases
 

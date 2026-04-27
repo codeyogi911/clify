@@ -46,6 +46,32 @@ function interpolatePath(template, values) {
   return path;
 }
 
+// Action defs may declare:
+//   queryFlags: ["foreign_id"]        — flags that ride on the URL query, not body.
+//                                       Use for "convert-from-X" creates whose
+//                                       parent FK is a query parameter (the
+//                                       request body equivalent is silently
+//                                       dropped by some APIs — Zoho's
+//                                       POST /creditnotes ?invoice_id= is the
+//                                       canonical example).
+//   brokenListFilters: ["customer_id"] — list-action filters the upstream API
+//                                       silently ignores (returns 200 OK with
+//                                       the unfiltered list). Runtime drops
+//                                       them from the wire and falls back to
+//                                       client-side filter on the full list.
+function clientFilter(items, filters) {
+  const checks = Object.entries(filters);
+  return items.filter((row) =>
+    checks.every(([k, target]) => {
+      const v = row?.[k];
+      if (v === undefined || v === null) return false;
+      const a = String(v).toLowerCase();
+      const b = String(target).toLowerCase();
+      return a === b || a.includes(b);
+    }),
+  );
+}
+
 async function runResourceAction(resourceArg, actionArg, remaining, global, rest) {
   const def = REGISTRY[resourceArg][actionArg];
 
@@ -73,12 +99,35 @@ async function runResourceAction(resourceArg, actionArg, remaining, global, rest
       try { body = JSON.parse(parsed.values.body); }
       catch { errorOut("validation_error", "--body must be valid JSON"); }
     } else {
-      body = buildPayload(parsed.values);
+      // queryFlags must not bleed into the body — they're routed to the URL.
+      const stripped = { ...parsed.values };
+      for (const k of def.queryFlags || []) delete stripped[k];
+      body = buildPayload(stripped);
     }
   }
 
-  // Cursor pagination via --all on list-like actions.
-  if (global.all && actionArg === "list") {
+  // Detect upstream-broken list filters: drop from the wire, full-list pull,
+  // client-side filter, and stderr note so the user knows what happened.
+  const brokenFilters = (actionArg === "list" && Array.isArray(def.brokenListFilters))
+    ? Object.fromEntries(
+        def.brokenListFilters
+          .filter((k) => parsed.values[k] !== undefined && parsed.values[k] !== "")
+          .map((k) => [k, String(parsed.values[k])]),
+      )
+    : {};
+  const hasBrokenFilters = Object.keys(brokenFilters).length > 0;
+  if (hasBrokenFilters) {
+    for (const k of Object.keys(brokenFilters)) parsed.values[k] = undefined;
+    if (!global.dry_run) {
+      process.stderr.write(
+        `note: ${resourceArg}.list filter(s) ${Object.keys(brokenFilters).map((k) => `--${k}`).join(", ")} are silently ignored upstream — fetching full list and filtering client-side.\n`,
+      );
+    }
+  }
+
+  // Cursor pagination via --all on list-like actions, or implicitly when a
+  // broken filter forces the full-list fallback.
+  if ((global.all || hasBrokenFilters) && actionArg === "list") {
     const collected = [];
     const query = {};
     if (parsed.values.cursor) query.cursor = parsed.values.cursor;
@@ -87,17 +136,25 @@ async function runResourceAction(resourceArg, actionArg, remaining, global, rest
     for await (const item of paginate({ method: def.method, path, query, version: VERSION, dryRun: !!global.dry_run, verbose: !!global.verbose, showSecrets: !!global.show_secrets })) {
       collected.push(item);
     }
-    output(collected, !!global.json);
+    const filtered = hasBrokenFilters ? clientFilter(collected, brokenFilters) : collected;
+    output(filtered, !!global.json);
     return;
   }
 
-  // Build query for list-like actions (non-paginating path).
+  // Build query for list-like actions (non-paginating path) and for any
+  // declared queryFlags on non-GET actions (e.g. convert-from-X creates).
   let query;
   if (def.method === "GET" && actionArg !== "get") {
     query = {};
     for (const [k, v] of Object.entries(parsed.values)) {
       if (v !== undefined && k !== "id") query[k] = v;
     }
+  } else if (def.queryFlags && def.queryFlags.length) {
+    query = {};
+    for (const k of def.queryFlags) {
+      if (parsed.values[k] !== undefined && parsed.values[k] !== "") query[k] = parsed.values[k];
+    }
+    if (Object.keys(query).length === 0) query = undefined;
   }
 
   const result = await apiRequest({

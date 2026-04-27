@@ -66,6 +66,32 @@ Reference impl: [`examples/exemplar-cli/bin/exemplar-cli.mjs`](../examples/exemp
 | Idempotency | `--idempotency-key <key>` (when API supports it) |
 | Concurrency | `--if-match <etag>` (when API supports it) |
 
+### Action-def annotations for upstream API quirks
+
+Two optional keys on an action def let `bin/<api>-cli.mjs` handle common
+quirks without per-resource glue:
+
+- **`queryFlags: ["foreignId"]`** — flag names that ride on the URL query
+  string instead of the JSON body. Use for "convert from X" `POST` creates
+  whose docs list the parent FK as a **query parameter**, not a body field
+  (e.g. `POST /creditnotes ?invoice_id=` on Zoho). The body equivalent is
+  silently dropped on these APIs and the resulting record has no
+  structural link to the source. Verify with `--dry-run`: the URL must
+  contain `?<flag>=<value>` and the body must NOT.
+
+- **`brokenListFilters: ["customerId"]`** — list-action filters the
+  upstream API silently ignores (HTTP 200 with the unfiltered list). Runtime
+  drops them from the wire, fetches the full list via cursor pagination,
+  filters client-side (case-insensitive equals OR substring), and writes
+  a one-line `note: …` to stderr. Detect via probe: pass `FAKE-NONEXISTENT`
+  and compare row count against the unfiltered baseline.
+
+Reference implementation: `examples/exemplar-cli/commands/orders.mjs`
+(`create.queryFlags = ["cartId"]` and `list.brokenListFilters = ["customerId"]`).
+Knowledge: [`knowledge/query-flags-and-broken-list-filters.md`](../examples/exemplar-cli/knowledge/query-flags-and-broken-list-filters.md).
+Tests: `orders create routes --cartId to URL query, not body` and
+`orders list with --customerId falls back to client-side filter`.
+
 ---
 
 ## Test Override (rigid contract)
