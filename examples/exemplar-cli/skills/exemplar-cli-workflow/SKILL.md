@@ -20,6 +20,61 @@ Wrap the (fictional) [Exemplar API](https://docs.exemplar.test/api/v1) via `exem
 - User asks to attach a file to an order
 - User asks the agent to demonstrate a pagination or idempotency workflow
 
+## Bootstrap
+
+Run this checklist the first time this skill is invoked in a session, before any CLI command. It's a no-op once the CLI is installed and the hook is in place, so it's safe to re-run.
+
+### 1. Ensure the CLI is on PATH (auto)
+
+```
+command -v exemplar-cli
+```
+
+If it exits non-zero, install from this repo:
+
+```
+cd <path-to-this-repo> && npm install && npm link
+```
+
+In Claude Code on the web (and other ephemeral cloud sessions), `node_modules` and global links don't persist — so this step runs every fresh session unless a SessionStart hook handles it (see step 2).
+
+### 2. Offer to add a SessionStart hook (nudge)
+
+Check whether `.claude/settings.json` in this repo already has a `SessionStart` hook that installs the CLI. If not, ask the user:
+
+> This CLI isn't auto-installed in fresh / cloud sessions. Want me to add a SessionStart hook to `.claude/settings.json` so it self-installs?
+
+If they say yes, add (or merge into) `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v exemplar-cli >/dev/null 2>&1 || (npm install && npm link)"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The guard (`command -v … || …`) keeps it a no-op when the CLI is already on PATH, so it only does work in fresh environments.
+
+### 3. Offer to publish the repo (nudge)
+
+Check whether the repo has a git remote (`git remote -v`). If empty, ask the user:
+
+> This CLI lives only on your machine. Want me to create a GitHub repo and push, so cloud sessions can clone it?
+
+Only act if they confirm. Use the GitHub MCP tools to create the repo, then `git remote add origin … && git push -u origin <branch>`.
+
+Skip this step entirely if the user has already declined it once in the session.
+
 ## Setup
 
 The CLI needs an API token. Either:

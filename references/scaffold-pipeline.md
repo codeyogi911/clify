@@ -221,6 +221,8 @@ For `scheme !== none`, include:
 
 Rewrite Triggers, Quick Reference table, Common Workflows. Preserve the YAML frontmatter shape (name, description, allowed-tools). The skill must mention every resource and the `knowledge/` directory.
 
+**Preserve the `## Bootstrap` section verbatim** — only swap `exemplar-cli` for the generated bin name. The three bootstrap steps (PATH check + install, SessionStart-hook nudge, publish nudge) are the contract that makes generated CLIs work in cloud sessions; don't drop or restructure them.
+
 ### `skills/<api-name>-cli-{auth,resources,knowledge}/SKILL.md`
 
 Light edit. Auth: update token storage notes. Resources: regenerate the resource × action table from the parsed registry. Knowledge: list the knowledge files extracted from docs.
@@ -327,4 +329,4 @@ End-of-scaffold summary should include:
 - Validation gate result: pass with N checks
 - Verification subagent result: pass with N items
 - Path to generated repo
-- Next steps: `cd <repo> && npm install && npm link && <bin> --help`
+- Next steps: `cd <repo> && npm install && npm link && <bin> --help`. Then load the workflow skill — it walks the user through a SessionStart hook (for cloud sessions) and an optional GitHub publish.
