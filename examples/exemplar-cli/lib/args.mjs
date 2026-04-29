@@ -37,3 +37,17 @@ export function checkRequired(values, flagSpec) {
   }
   return missing;
 }
+
+// For flags that declare `enum: [...]`, reject values that aren't in the
+// allowed set. Returns a list of `{flag, value, allowed}` for each
+// violator (empty list = no violations). Skips flags that weren't passed.
+export function checkEnum(values, flagSpec) {
+  const violations = [];
+  for (const [name, spec] of Object.entries(flagSpec)) {
+    if (!Array.isArray(spec.enum) || spec.enum.length === 0) continue;
+    const v = values[name];
+    if (v === undefined || v === "") continue;
+    if (!spec.enum.includes(v)) violations.push({ flag: name, value: v, allowed: spec.enum });
+  }
+  return violations;
+}

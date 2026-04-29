@@ -30,8 +30,13 @@ export function showActionHelp(resource, action, registry) {
   if (entries.length === 0) out += `  (none)\n`;
   for (const [name, spec] of entries) {
     const req = spec.required ? "required" : "optional";
+    // Render enum values inline so users see allowed values without
+    // bouncing to the docs: `--filter_by <All|NotShipped|Shipped>`.
+    const flagLabel = Array.isArray(spec.enum) && spec.enum.length
+      ? `--${name} <${spec.enum.join("|")}>`
+      : `--${name}`;
     const desc = spec.description || "";
-    out += `  --${name.padEnd(20)} ${spec.type.padEnd(8)} ${req.padEnd(8)} ${desc}\n`;
+    out += `  ${flagLabel.padEnd(22)} ${spec.type.padEnd(8)} ${req.padEnd(8)} ${desc}\n`;
   }
   return out;
 }

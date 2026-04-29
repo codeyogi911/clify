@@ -34,28 +34,77 @@ test("stripQueryFlags is a no-op when no queryFlags declared", () => {
   assert.deepEqual(stripQueryFlags({ a: 1, b: 2 }, {}), { a: 1, b: 2 });
 });
 
-test("pickBrokenFilters returns the declared filters that were populated", () => {
+test("pickBrokenFilters returns the declared filters that were populated (legacy string form)", () => {
   const def = { brokenListFilters: ["customerId", "tag"] };
   assert.deepEqual(
     pickBrokenFilters({ customerId: "C-9", tag: "", other: "x" }, def),
-    { customerId: "C-9" },
+    { customerId: { value: "C-9", match: "equals" } },
   );
   assert.deepEqual(pickBrokenFilters({}, def), {});
   assert.deepEqual(pickBrokenFilters({ a: 1 }, {}), {});
 });
 
-test("clientFilter returns rows that match every filter (case-insensitive equals OR substring)", () => {
+test("pickBrokenFilters honors per-filter match mode (v0.6+ object form)", () => {
+  const def = {
+    brokenListFilters: [
+      { name: "customer_name_startswith", match: "startswith" },
+      { name: "reference_number_contains", match: "contains" },
+      { name: "filter_by", match: "equals" },
+    ],
+  };
+  assert.deepEqual(
+    pickBrokenFilters(
+      { customer_name_startswith: "Ac", reference_number_contains: "INV", filter_by: "Shipped" },
+      def,
+    ),
+    {
+      customer_name_startswith: { value: "Ac", match: "startswith" },
+      reference_number_contains: { value: "INV", match: "contains" },
+      filter_by: { value: "Shipped", match: "equals" },
+    },
+  );
+});
+
+test("clientFilter (legacy string-value shape): case-insensitive equals OR substring", () => {
   const items = [
     { id: "1", customerId: "ACME-CO", region: "us-west" },
     { id: "2", customerId: "acme-co", region: "us-east" },
     { id: "3", customerId: "OTHER", region: "us-west" },
   ];
-  // Equals (case-insensitive)
   assert.deepEqual(clientFilter(items, { customerId: "acme-co" }).map((r) => r.id), ["1", "2"]);
-  // Substring (e.g. user passes a prefix or contained fragment)
   assert.deepEqual(clientFilter(items, { customerId: "ACME" }).map((r) => r.id), ["1", "2"]);
-  // Multi-filter is AND
   assert.deepEqual(clientFilter(items, { customerId: "ACME", region: "us-west" }).map((r) => r.id), ["1"]);
+});
+
+test("clientFilter (v0.6+ object shape) honors per-filter match modes", () => {
+  const items = [
+    { id: "1", customer_name: "Acme Industries", reference_number: "INV-001", filter_by: "Shipped" },
+    { id: "2", customer_name: "Acme Goods",      reference_number: "INV-002", filter_by: "NotShipped" },
+    { id: "3", customer_name: "Other Co",        reference_number: "PO-077",  filter_by: "Shipped" },
+  ];
+  // startswith: "Ac" matches both Acme rows but not Other Co.
+  assert.deepEqual(
+    clientFilter(items, { customer_name: { value: "Ac", match: "startswith" } }).map((r) => r.id),
+    ["1", "2"],
+  );
+  // contains: "INV" matches the two with INV reference numbers.
+  assert.deepEqual(
+    clientFilter(items, { reference_number: { value: "INV", match: "contains" } }).map((r) => r.id),
+    ["1", "2"],
+  );
+  // equals: only an exact case-insensitive match — "Shipped" must NOT match "NotShipped".
+  assert.deepEqual(
+    clientFilter(items, { filter_by: { value: "Shipped", match: "equals" } }).map((r) => r.id),
+    ["1", "3"],
+  );
+  // Multi-filter is AND across mixed match modes.
+  assert.deepEqual(
+    clientFilter(items, {
+      customer_name: { value: "Acme", match: "startswith" },
+      filter_by: { value: "Shipped", match: "equals" },
+    }).map((r) => r.id),
+    ["1"],
+  );
 });
 
 test("clientFilter is a no-op when no filters provided", () => {

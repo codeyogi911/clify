@@ -175,6 +175,83 @@ test("validate: missing BASE_URL override → manifest fail", async () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+// ---------- filter-coverage (v0.6+) ----------
+
+test("validate: filter-coverage passes when filterProbes covers list actions", async () => {
+  const r = await validate(EXEMPLAR, { skipTests: true });
+  // exemplar declares one filter (orders.status) and one matching probe
+  assert.ok(
+    r.results.some((x) => x.ok && /filter-coverage:.*individually probed/.test(x.name)),
+    "expected filter-coverage pass",
+  );
+});
+
+test("validate: list action with filter flags but no probes → coverage fail", async () => {
+  const { root, repo } = freshCopy();
+  try {
+    // Strip the existing filterProbes from .clify.json so orders.status
+    // (which is filter-shaped) becomes an unprobed declared filter.
+    const cpath = join(repo, ".clify.json");
+    const cfg = JSON.parse(readFileSync(cpath, "utf8"));
+    delete cfg.filterProbes;
+    writeFileSync(cpath, JSON.stringify(cfg, null, 2));
+    const r = await validate(repo, { skipTests: true });
+    assert.ok(
+      r.results.some((x) => !x.ok && x.category === "coverage" && /filter-coverage/.test(x.name)),
+      `expected filter-coverage failure; got results=${JSON.stringify(r.results.filter((x) => !x.ok), null, 2)}`,
+    );
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("validate: blanket-marked filters with no verified probes → coverage fail", async () => {
+  const { root, repo } = freshCopy();
+  try {
+    // Mutate orders.list to declare every filter-shaped flag as broken
+    // AND set the filterProbes to all 'broken' status — the v0.5
+    // blanket-mark anti-pattern.
+    const ordersPath = join(repo, "commands/orders.mjs");
+    let src = readFileSync(ordersPath, "utf8");
+    // Inject brokenListFilters: ["status"] at the ACTION level (after
+    // the entire flags block, before the action's own closing brace).
+    // The flags block ends with `\n      },\n` at indent 6.
+    src = src.replace(
+      /(\n      flags:\s*\{[\s\S]*?\n      \},)/,
+      `$1\n      brokenListFilters: ["status"],`,
+    );
+    writeFileSync(ordersPath, src);
+
+    const cpath = join(repo, ".clify.json");
+    const cfg = JSON.parse(readFileSync(cpath, "utf8"));
+    cfg.filterProbes = [
+      { resource: "orders", filter: "status", baselineCount: 5, filteredCount: 5, status: "broken" },
+    ];
+    writeFileSync(cpath, JSON.stringify(cfg, null, 2));
+
+    const r = await validate(repo, { skipTests: true });
+    assert.ok(
+      r.results.some((x) => !x.ok && x.category === "coverage" && /filter-coverage/.test(x.name) && /blanket-marked|every filter/.test(JSON.stringify(x))),
+      `expected blanket-mark failure; got results=${JSON.stringify(r.results.filter((x) => !x.ok), null, 2)}`,
+    );
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("validate: untested filterProbe surfaces as a warning, not a failure", async () => {
+  const { root, repo } = freshCopy();
+  try {
+    const cpath = join(repo, ".clify.json");
+    const cfg = JSON.parse(readFileSync(cpath, "utf8"));
+    cfg.filterProbes = [
+      { resource: "orders", filter: "status", baselineCount: 5, filteredCount: 5, status: "untested", note: "no test creds" },
+    ];
+    writeFileSync(cpath, JSON.stringify(cfg, null, 2));
+    const r = await validate(repo, { skipTests: true });
+    // No filter-coverage hard-fail.
+    assert.ok(!r.results.some((x) => !x.ok && /filter-coverage/.test(x.name)),
+      `untested probes should warn, not fail; got ${JSON.stringify(r.results.filter((x) => !x.ok), null, 2)}`);
+    assert.ok(r.warnings.some((w) => /untested/.test(w)), `expected untested warning; got ${JSON.stringify(r.warnings)}`);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 // ---------- syncCheck ----------
 
 test("syncCheck: detects identical content as unchanged", async () => {

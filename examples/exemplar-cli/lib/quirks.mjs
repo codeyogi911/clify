@@ -26,34 +26,64 @@ export function stripQueryFlags(values, def) {
   return out;
 }
 
+// `brokenListFilters` may be either a flat list of flag names (legacy v0.5
+// shape) OR a list of `{ name, match }` objects (v0.6+, per-flag match mode).
+// Normalize both into `{ name, match }`. Default match is "equals".
+function normalizeBrokenFilters(def) {
+  if (!def?.brokenListFilters?.length) return [];
+  return def.brokenListFilters.map((entry) =>
+    typeof entry === "string"
+      ? { name: entry, match: "equals" }
+      : { name: entry.name, match: entry.match || "equals" },
+  );
+}
+
 // Detect which of `def.brokenListFilters` the user populated on this call.
-// Returns a {flag: value} map (empty when none). Callers should drop these
-// from the wire query, fetch the full list, and run `clientFilter` on the
-// result.
+// Returns a `{ flag: { value, match } }` map (empty when none). Callers
+// should drop these from the wire query, fetch the full list, and run
+// `clientFilter` on the result.
 export function pickBrokenFilters(values, def) {
-  if (!def?.brokenListFilters?.length) return {};
   const out = {};
-  for (const k of def.brokenListFilters) {
-    const v = values[k];
-    if (v !== undefined && v !== "") out[k] = String(v);
+  for (const { name, match } of normalizeBrokenFilters(def)) {
+    const v = values[name];
+    if (v !== undefined && v !== "") out[name] = { value: String(v), match };
   }
   return out;
 }
 
 // Client-side fallback for list endpoints whose upstream-API filter is
-// silently ignored. Compares each requested value against the row's
-// same-named field with case-insensitive equality OR substring match (the
-// substring covers prefix-style number lookups users typically want).
+// silently ignored. Per-filter match modes:
+//   - "equals"     — case-insensitive exact equality.
+//   - "startswith" — case-insensitive prefix match.
+//   - "contains"   — case-insensitive substring match.
+// `filters` is the `{ name: { value, match } }` map from pickBrokenFilters.
+// Backwards-compatible: callers passing the legacy `{ name: value }` shape
+// are coerced to `{ value, match: "equals-or-contains" }` for the v0.5
+// hybrid behavior (case-insensitive equals OR substring).
 export function clientFilter(items, filters) {
   const checks = Object.entries(filters);
   if (!checks.length) return items;
+  const normalized = checks.map(([k, raw]) => {
+    if (raw && typeof raw === "object" && "value" in raw) return [k, raw];
+    return [k, { value: raw, match: "equals-or-contains" }];
+  });
   return items.filter((row) =>
-    checks.every(([k, target]) => {
+    normalized.every(([k, { value, match }]) => {
       const v = row?.[k];
       if (v === undefined || v === null) return false;
       const a = String(v).toLowerCase();
-      const b = String(target).toLowerCase();
-      return a === b || a.includes(b);
+      const b = String(value).toLowerCase();
+      switch (match) {
+        case "equals":
+          return a === b;
+        case "startswith":
+          return a.startsWith(b);
+        case "contains":
+          return a.includes(b);
+        case "equals-or-contains":
+        default:
+          return a === b || a.includes(b);
+      }
     }),
   );
 }
