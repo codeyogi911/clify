@@ -65,6 +65,73 @@ After grouping endpoints by resource, group AGAIN by sub-path tail. Common share
 
 Why hard-fail: in the Fix Coffee Zoho rollout, `/comments` was generated for 5 of 7 sibling resources and silently skipped on the rest. Users had to hand-add the missing actions. The family-consistency check catches this at gate time.
 
+### List-filter extraction (canonical contract)
+
+Generated CLIs systematically lose information at this step — collapsing
+documented variant names into bare flags, then blanket-marking the
+result as BROKEN when one probe with the wrong name fails. The
+`filter-coverage` validator check (v0.6+) enforces the rules below.
+
+1. **Every documented query-parameter on a `GET …/list` endpoint becomes
+   its own flag, named verbatim.** When the docs list
+   `customer_name_startswith`, `customer_name_contains`,
+   `reference_number_startswith`, `date_start`, `date_end`, `filter_by`,
+   emit ALL of them — six flags, not one collapsed `--customer_name`.
+   The suffix encodes the server-side match mode and is not optional.
+2. **Enum values go in the flag spec.** When the docs say `filter_by`
+   accepts `All|NotShipped|Shipped|Delivered`, set
+   `flags.filter_by.enum: ["All", "NotShipped", "Shipped", "Delivered"]`
+   AND include them in `flags.filter_by.description`. The exemplar's
+   help generator reads `enum` and renders inline allowed-values.
+3. **Sort flags are auto-emit.** For any list endpoint, add
+   `--sort_column` (string) and `--sort_order` (`asc|desc`, enum) even if
+   not explicitly tabled. Almost every paginated list API supports them
+   and the absence in docs is almost always an omission.
+4. **Per-flag probe.** When the API can be reached at generation time,
+   probe each filter individually:
+   - Make one unfiltered request → record `baselineCount` (response row count).
+   - For each filter, make one request with a value that should match ≥1
+     record (use a real value sampled from the unfiltered response, or
+     the first enum value for `filter_by`-style flags).
+   - Record `filteredCount`.
+   - Status:
+     - `filteredCount < baselineCount` (and ≥0) → `verified`.
+     - `filteredCount === baselineCount` → `broken` (server ignored it).
+     - couldn't probe (no creds, network blocked, rate-limited) →
+       `untested`. Leave the flag working, do NOT add to
+       `brokenListFilters`.
+5. **Write the probe log to `.clify.json.filterProbes`.** Schema:
+   ```json
+   {
+     "filterProbes": [
+       { "resource": "packages", "filter": "filter_by",        "baselineCount": 319, "filteredCount": 83,  "status": "verified" },
+       { "resource": "packages", "filter": "status",           "baselineCount": 319, "filteredCount": 319, "status": "broken" },
+       { "resource": "packages", "filter": "date_start",       "baselineCount": 319, "filteredCount": 319, "status": "untested", "note": "no upstream test data in date range" }
+     ]
+   }
+   ```
+   The validator's `filter-coverage` check reads this in Phase 6:
+   - If a list action declares filter-shaped flags (anything not in
+     `{id, page, cursor, limit, offset, per_page, sort_column,
+     sort_order}`) and `filterProbes` has zero entries for that
+     resource → HARD-FAIL ("Phase 5 skipped probe step").
+   - If every filter on a list action is in `brokenListFilters` AND
+     `filterProbes` shows no individual probes → HARD-FAIL (the
+     blanket-mark anti-pattern).
+   - If a filter is `untested` → WARN, not fail. Untested-at-generation
+     is fine; silent blanket-marking is not.
+
+**Worked example — Zoho Inventory `packages list`:** Docs declare
+`filter_by` (enum: All|NotShipped|Shipped|Delivered), `customer_name_startswith`,
+`reference_number_startswith`, `date_start`, `date_end`, `sort_column`, `sort_order`.
+Pre-v0.6 generation collapsed these into a bare `--status`, probed it,
+saw the API ignore `status`, and marked all nine filters as broken.
+Correct generation: emit each flag verbatim, probe `--filter_by Shipped`
+(returns 83 vs unfiltered 319 → `verified`), probe the rest, only mark
+the genuinely-ignored ones as broken. The `customer_name_startswith` and
+`reference_number_startswith` are usually verified; `filter_by` is
+verified; `status` (if mistakenly emitted) is broken.
+
 ### Nuance detection cheat sheet
 
 | Signal | Nuance | Artifact |
@@ -198,9 +265,17 @@ Generally unchanged. Edit the `BASE_URL` default if the API doesn't have a singl
   "clifyVersion": "<from clify package>",
   "auth": { "envVar": "<API>_API_KEY", "scheme": "<scheme>", "validationCommand": "<resource> <action>" },
   "nuances": { /* every detected nuance */ },
-  "coverage": { "totalParsed": N, "totalIncluded": M, "totalDropped": K }
+  "coverage": { "totalParsed": N, "totalIncluded": M, "totalDropped": K },
+  "filterProbes": [
+    { "resource": "<r>", "filter": "<flag>", "baselineCount": <int>, "filteredCount": <int>, "status": "verified" | "broken" | "untested", "note": "<optional>" }
+  ]
 }
 ```
+
+`filterProbes` is read by the `filter-coverage` validator check (v0.6+).
+One entry per probed-or-skipped filter. Skipping a filter entirely (no
+entry) is forbidden when the resource declares filter-shaped flags —
+the validator hard-fails that.
 
 ### `.env.example`
 

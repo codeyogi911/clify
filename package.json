@@ -1,6 +1,6 @@
 {
   "name": "clify",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Generate A+ Node.js CLIs from API documentation. Copies a hand-crafted exemplar (structurally inspired by google/agents-cli), mechanically substitutes API-specific content, and verifies via a deterministic validation gate.",
   "type": "module",
   "bin": {

@@ -139,6 +139,46 @@ test("orders list filters by status query", async () => {
   });
 });
 
+// ---------- filter-probe pattern (v0.6+) ----------
+//
+// This is the canonical test pattern any generated CLI inherits — it
+// proves a declared list-filter flag actually filters server-side.
+// Catches the Zoho `filter_by` miss the v0.6 generator-side fix targets:
+// pre-v0.6, generated CLIs would declare `--status` on a list endpoint,
+// then mark the WHOLE filter set as broken when one probe returned the
+// unfiltered count. With per-flag probing, the verified-server-side
+// filter (this test) and the broken-fallback (unit-tested in quirks.test.mjs)
+// stay distinct, and `.clify.json.filterProbes` records the truth.
+test("filter-probe pattern: declared --status flag filters server-side (verified)", async () => {
+  // Mock returns 5 rows unfiltered, 2 rows when ?status=shipped.
+  const allRows = [
+    { id: "o1", status: "pending" },
+    { id: "o2", status: "shipped" },
+    { id: "o3", status: "shipped" },
+    { id: "o4", status: "cancelled" },
+    { id: "o5", status: "pending" },
+  ];
+  await withMock({
+    "GET /orders": (req) => {
+      const filter = req.query.status;
+      const rows = filter ? allRows.filter((r) => r.status === filter) : allRows;
+      return { status: 200, body: { items: rows, nextCursor: null } };
+    },
+  }, async (server) => {
+    // Baseline (unfiltered).
+    const baseline = await runJson(["orders", "list"], { env: { ...ENV, EXEMPLAR_BASE_URL: server.url } });
+    assert.equal(baseline.exitCode, 0, baseline.stderr);
+    assert.equal(baseline.json.items.length, 5, "baseline returns the full list");
+
+    // Filtered call — must (a) put status on the wire, (b) return fewer rows.
+    const filtered = await runJson(["orders", "list", "--status", "shipped"], { env: { ...ENV, EXEMPLAR_BASE_URL: server.url } });
+    assert.equal(filtered.exitCode, 0, filtered.stderr);
+    assert.equal(filtered.json.items.length, 2, "server-side filter took effect");
+    const filteredReq = server.requests[server.requests.length - 1];
+    assert.equal(filteredReq.query.status, "shipped", "wire URL contained ?status=shipped (server-side filter, not client-side fallback)");
+  });
+});
+
 test("orders upload posts multipart/form-data with --file", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "exemplar-mp-"));
   const filePath = join(tmp, "receipt.txt");

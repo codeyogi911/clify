@@ -11,7 +11,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadEnv } from "../lib/env.mjs";
-import { splitGlobal, hasHelp, toParseArgs, checkRequired } from "../lib/args.mjs";
+import { splitGlobal, hasHelp, toParseArgs, checkRequired, checkEnum } from "../lib/args.mjs";
 import { output, errorOut } from "../lib/output.mjs";
 import { apiRequest, paginate } from "../lib/api.mjs";
 import { showRootHelp, showResourceHelp, showActionHelp } from "../lib/help.mjs";
@@ -72,6 +72,12 @@ async function runResourceAction(resourceArg, actionArg, remaining, global, rest
 
   const missing = checkRequired(parsed.values, def.flags);
   if (missing.length) errorOut("validation_error", `Missing required flag(s): ${missing.map((m) => `--${m}`).join(", ")}`);
+
+  const enumViolations = checkEnum(parsed.values, def.flags);
+  if (enumViolations.length) {
+    const v = enumViolations[0];
+    errorOut("validation_error", `--${v.flag}=${v.value} is not allowed; expected one of: ${v.allowed.join(", ")}`);
+  }
 
   const path = interpolatePath(def.path, parsed.values);
   const buildPayload = PAYLOAD_BUILDERS[resourceArg];

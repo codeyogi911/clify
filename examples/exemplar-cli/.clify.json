@@ -26,5 +26,8 @@
     "totalParsed": 11,
     "totalIncluded": 11,
     "totalDropped": 0
-  }
+  },
+  "filterProbes": [
+    { "resource": "orders", "filter": "status", "baselineCount": 5, "filteredCount": 1, "status": "verified", "note": "verified against the bundled mock server in test/integration.test.mjs" }
+  ]
 }

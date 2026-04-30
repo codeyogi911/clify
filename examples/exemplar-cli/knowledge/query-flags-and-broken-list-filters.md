@@ -1,7 +1,7 @@
 ---
 type: contract
-source: clify v0.5
-applies-to: ["bin/<api>-cli.mjs", "commands/*.mjs", "lib/quirks.mjs"]
+source: clify v0.6
+applies-to: ["bin/<api>-cli.mjs", "commands/*.mjs", "lib/quirks.mjs", "lib/help.mjs", "lib/args.mjs"]
 ---
 
 # `queryFlags` and `brokenListFilters` action annotations
@@ -45,40 +45,99 @@ The runtime in `bin/<api>-cli.mjs`:
 
 Some `GET …/list` endpoints accept filter query parameters that the server
 silently ignores: `200 OK`, no error header, full unfiltered list returned.
-Detection requires comparing baseline (no filter) and `FAKE-NONEXISTENT`
-(impossible value) row counts — equal counts means the filter is broken.
+**Detection requires per-flag probing** — running one probe with the
+wrong name and blanket-marking the rest is the v0.5 anti-pattern this
+contract exists to prevent.
+
+### Discovery checklist (per list endpoint)
+
+When generating or auditing a CLI:
+
+1. **Read the docs page properly.** Every documented query-parameter
+   becomes its own flag, **using the documented name verbatim**:
+   `--customer_name_startswith`, `--customer_name_contains`,
+   `--reference_number_startswith`, `--filter_by`, `--date_start`,
+   `--date_end`. Do NOT collapse variants — the suffix (`_startswith`,
+   `_contains`) is the server-side match mode and is not optional.
+2. **Surface enum values.** When the docs say a param accepts an enum
+   (e.g. `filter_by: All|NotShipped|Shipped|Delivered`), set
+   `flags.<name>.enum: [...]` AND mention the allowed values in
+   `description`. The exemplar's help generator renders inline:
+   `--filter_by <All|NotShipped|Shipped|Delivered>`. The bin runtime
+   rejects out-of-enum values with a `validation_error`.
+3. **Auto-emit `sort_column` + `sort_order`** for any list endpoint
+   whose docs mention sorting. Most paginated APIs (Zoho, Shopify,
+   Stripe-style) accept these even when not tabled.
+4. **Per-flag probe** (when the API can be reached at generation time):
+   - Make one unfiltered call → record `baselineCount` (response row count).
+   - For each filter, make one call with a value sampled from the
+     unfiltered response (or the first enum value).
+   - Record `filteredCount`.
+   - Status:
+     - `filteredCount < baselineCount` → `verified` (server honored it).
+     - `filteredCount === baselineCount` → `broken` (server ignored it).
+     - probe failed (no creds, network blocked, rate limit) → `untested`.
+       Leave the flag working; do NOT add to `brokenListFilters`.
+5. **Write the probe log to `.clify.json.filterProbes`** — one entry per
+   filter probed (or skipped). The validator's `filter-coverage` check
+   reads this:
+   - List action declares filter-shaped flags but `filterProbes` has
+     zero entries for that resource → HARD-FAIL.
+   - Every filter on a list action is in `brokenListFilters` AND
+     `filterProbes` shows no individual probes → HARD-FAIL (the
+     blanket-mark anti-pattern).
+   - Filter is `untested` → WARN, not fail.
+
+For each filter the probe marked `broken`, declare it in
+`brokenListFilters` on the action def. The v0.6+ form takes
+per-filter `match` modes so the client-side fallback mirrors the
+documented match semantics:
 
 ```js
 list: {
   method: "GET",
   path: "/orders",
-  flags: { customerId: { type: "string", description: "Filter (BROKEN upstream — client-side fallback)" } },
-  brokenListFilters: ["customerId"],
+  flags: {
+    customer_name_startswith: { type: "string", description: "Filter by customer name prefix (BROKEN upstream — client-side fallback)" },
+    filter_by: { type: "string", enum: ["All", "Shipped", "NotShipped"], description: "Status filter (BROKEN upstream)" },
+  },
+  brokenListFilters: [
+    { name: "customer_name_startswith", match: "startswith" },
+    { name: "filter_by", match: "equals" },
+  ],
 }
 ```
+
+(The legacy v0.5 string-list form `brokenListFilters: ["customer_name"]` is
+still accepted and defaults to `match: "equals"` — but new generations
+should use the object form so the fallback semantics match the docs.)
 
 Runtime behavior when the user passes a broken filter:
 1. Strip the filter from the wire query.
 2. Pull the full list via cursor pagination.
-3. Filter client-side (case-insensitive equals OR substring) on the
-   row's same-named field.
+3. Filter client-side with the per-filter `match` mode (`equals`,
+   `startswith`, `contains`).
 4. Write a one-line `note: …` to stderr.
 
 Cost goes up to the full-list response size. For small datasets this is
 trivial; for larger ones, callers should pull once and filter themselves.
 
-## Discovery checklist
+### Worked example: Zoho Inventory `packages list`
 
-When generating or auditing a CLI:
+Docs declare nine query parameters: `filter_by` (enum), `customer_name_startswith`,
+`customer_name_contains`, `reference_number_startswith`, `reference_number_contains`,
+`date_start`, `date_end`, `sort_column`, `sort_order`. The pre-v0.6 generator
+collapsed these into a bare `--status`, probed once, saw the API ignore `status`,
+and marked all nine as broken.
 
-1. For every documented `POST <resource>` create — does the API doc list a
-   foreign-key parameter under "Query parameters" (not "Body parameters")?
-   If yes, add it to `queryFlags`. (Common APIs that do this:
-   Zoho Inventory/Books, Zoho CRM, Xero, Razorpay X.)
-2. For every list endpoint — pick one declared filter and compare the
-   row count with `--<filter> FAKE-NONEXISTENT-XYZ` against an
-   unfiltered call. Equal counts → broken; declare in `brokenListFilters`
-   AND clarify the help text.
+Correct generation:
+- Emit each flag verbatim.
+- Probe `--filter_by Shipped` → `filteredCount=83 vs baselineCount=319` → `verified`.
+- Probe `--customer_name_startswith Acme` → `filteredCount=12 vs 319` → `verified`.
+- Probe `--status Shipped` (if mistakenly emitted) → `filteredCount=319` → `broken`.
+- `.clify.json.filterProbes` records all nine — verified or broken or untested.
+- Only the genuinely-broken ones land in `brokenListFilters` with the right
+  `match` mode.
 
 A new clify version should re-run these probes whenever the upstream
 docs change (`clify sync-check` flags doc drift; the manual probe is the
