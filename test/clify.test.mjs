@@ -53,7 +53,7 @@ test("scaffoldInit: produces a working renamed copy", () => {
     const api = readFileSync(join(result.dir, "lib/api.mjs"), "utf8");
     assert.match(api, /MOVIE_DB_BASE_URL/);
     // modular skills directory is renamed too
-    assert.ok(existsSync(join(result.dir, "skills/movie-db-cli-workflow/SKILL.md")));
+    assert.ok(existsSync(join(result.dir, "skills/movie-db-cli/SKILL.md")));
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
@@ -155,7 +155,7 @@ test("validate: nuance declared without artifact → nuances fail", async () => 
 test("validate: SKILL.md missing knowledge/ preamble → structural fail", async () => {
   const { root, repo } = freshCopy();
   try {
-    const path = join(repo, "skills/exemplar-cli-workflow/SKILL.md");
+    const path = join(repo, "skills/exemplar-cli/SKILL.md");
     const src = readFileSync(path, "utf8").replace(/knowledge\//g, "kb/");
     writeFileSync(path, src);
     const r = await validate(repo, { skipTests: true });

@@ -1,12 +1,4 @@
----
-name: exemplar-cli-resources
-description: Quick reference for every Exemplar API resource × action exposed by exemplar-cli. Use when the user asks "what does the items API support?" or needs the precise flag set for a specific endpoint.
-allowed-tools:
-  - Bash
-  - Read
----
-
-# exemplar-cli-resources
+# exemplar-cli resources
 
 Resource × action quick reference. When in doubt, prefer `exemplar-cli <resource> <action> --help` — the help text is generated from the same registry and never drifts.
 

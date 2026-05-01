@@ -89,7 +89,7 @@ Edit only what changes per API. Preserve helper signatures (`apiRequest`, `outpu
 - `lib/config.mjs` — replace the `__EXEMPLAR_DEV_CONFIG_DIR` env-fallback line with a hardcoded `const CONFIG_DIR = join(homedir(), ".config", "<api>-cli");`.
 - `.clify.json` — fill `auth`, `defaults`, `nuances`, `coverage`, `contentHash` from the parsed spec. For `oauth-refresh`, also set `auth.{tokenUrl, refreshEnvVar, clientIdEnvVar, clientSecretEnvVar}` (validator hard-fails their absence).
 - `.env.example` — set `@required` / `@how-to-get` annotations on the auth var (skip for `scheme: none`). For `oauth-refresh`, uncomment the OAuth triplet and the `<API>_NO_CACHE` line; remove the static `<API>_API_KEY` block (or leave it commented as the pre-minted-token path).
-- `skills/<api-name>-cli-workflow/SKILL.md` — Triggers, Quick Reference, Common Workflows. Keep the modular layout intact (workflow, auth, resources, knowledge skills).
+- `skills/<api-name>-cli/SKILL.md` — Umbrella skill (triggers, setup, workflow). Keep `references/auth.md`, `references/resources.md`, and a synced `references/knowledge/` bundle alongside it.
 - `test/integration.test.mjs` — rewrite per-resource fixtures. Add nuance tests as required (multi-page for pagination, idempotency-key header assertion, FormData for multipart).
 - `coverage.json` + `knowledge/<short-topic>.md` files for any business rules surfaced in step 2.
 - `README.md` — lead with `## Install` and `## Authenticate` (validator hard-fails if missing); the existing Layout / Use / Test sections follow.

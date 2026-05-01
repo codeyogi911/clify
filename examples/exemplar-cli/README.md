@@ -8,7 +8,7 @@ A hand-crafted, fictional CLI used as the **stencil** for the [clify](https://gi
 - One file per resource under `commands/`.
 - Shared HTTP, auth, output, and config layers under `lib/`.
 - A first-class `login` command with `--status`.
-- Modular skills under `skills/<cli>-<role>/`.
+- One umbrella agent skill under `skills/<cli>/` with `references/` (auth, resources, bundled `knowledge/` copy).
 - Fully tested against an in-repo mock server — no network needed for `npm test`.
 
 The "Exemplar API" is fictional. The clify scaffolder copies this whole tree, mechanically renames `exemplar` / `EXEMPLAR` / `Exemplar` to the target API's name, and an LLM substitutes the resource registry, knowledge files, and tests to match.
@@ -88,8 +88,9 @@ exemplar-cli/
 │   ├── item-variants.mjs         sub-resource of items
 │   ├── orders.mjs                list/get/create/upload (multipart)
 │   └── login.mjs                 token + OAuth-refresh persistence + --status
-├── skills/                       modular, four files
-├── knowledge/                    business rules + patterns
+├── skills/exemplar-cli/          umbrella SKILL + references/
+├── scripts/sync-skill-knowledge.mjs   copies repo knowledge/ → skill bundle
+├── knowledge/                    business rules + patterns (source of truth)
 ├── test/
 │   ├── _helpers.mjs              spawn-CLI helper
 │   ├── _mock-server.mjs          zero-dep HTTP mock

@@ -12,7 +12,7 @@ You are working with `exemplar-cli`, a thin CLI over the (fictional) Exemplar AP
 
 - All resource commands follow `<resource> <action> [flags]`. The `login` command is dispatched separately.
 - Errors are JSON on stderr with exit code 1. `code` tells you whether to retry (`retryable: true`) and how long (`retryAfter` seconds).
-- The CLI never retries. That decision lives in the agent loop — see `skills/exemplar-cli-workflow/SKILL.md`.
+- The CLI never retries. That decision lives in the agent loop — see `skills/exemplar-cli/SKILL.md`.
 - Set `EXEMPLAR_BASE_URL` to point at a mock server during testing.
 
 ## Idempotency

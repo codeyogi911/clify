@@ -49,8 +49,8 @@ Exit code: 0 on pass, 1 on any failure. The scaffold skill calls this at step 11
 |---|---|
 | `--help` lists every resource | Every included resource appears in root `--help` output |
 | Resource `--help` lists every action | For each resource, `<cli> <resource> --help` lists every action declared for it |
-| SKILL.md references every resource | Generated `skills/<api>/SKILL.md` mentions every included resource |
-| SKILL.md mentions `knowledge/` | The preamble instructs the agent to read every file in `knowledge/` |
+| SKILL.md references every resource | Primary skill at `skills/<pkg>/SKILL.md` (preferred) mentions every included resource |
+| SKILL.md mentions `knowledge/` | Body instructs reading bundled notes; `references/knowledge/` counts (substring match) |
 
 ## 4. nuances
 

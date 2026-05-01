@@ -465,18 +465,21 @@ Adding a new scheme is a registry edit — branch on `SCHEME`, set the header, d
 
 For `oauth-refresh`, the exemplar's `applyAuth` is async (it may await a refresh-token mint). `apiRequest` already `await`s it. See the **Auth (OAuth-refresh)** section earlier in this file for the precedence rules and the `<API>_NO_CACHE` env var.
 
-### Modular skills
+### Agent skill (umbrella layout)
 
-Generated repos ship four skills under `skills/<api>-cli-<role>/SKILL.md`:
+Generated repos ship **one** skill directory: `skills/<api-name>-cli/` with:
 
-| Skill | Purpose |
+| Path | Purpose |
 |---|---|
-| `<api>-cli-workflow` | End-to-end workflows. Mentions every resource and the `knowledge/` dir. **The validation gate looks for this file.** |
-| `<api>-cli-auth` | Auth setup, login, troubleshooting 401/403 |
-| `<api>-cli-resources` | Resource × action × flag quick reference |
-| `<api>-cli-knowledge` | How to write and consume `knowledge/*.md` |
+| `SKILL.md` | Triggers, setup, workflow — must mention every resource and `knowledge/` (typically via `references/knowledge/`). **The validation gate resolves this file first.** |
+| `references/auth.md` | Auth setup, login, troubleshooting |
+| `references/resources.md` | Resource × action × HTTP mapping |
+| `references/knowledge/` | Bundled copy of repo-root `knowledge/` for standalone skill installs |
+| `references/knowledge-authoring.md` | Optional — how to extend knowledge |
 
-The legacy single-skill layout (`skills/<api-slug>/SKILL.md`) still passes the validation gate as a fallback, but new generation uses the modular layout.
+`.claude-plugin/plugin.json` should set `"skills": ["./skills/<api-name>-cli"]` so subfolders under `skills/` that are not skills (e.g. scripts) are not scanned.
+
+**Legacy layouts** still pass `clify validate`: `skills/<api-name>-cli-workflow/SKILL.md` (old modular primary) or `skills/<api-slug>/SKILL.md` where `<api-slug>` is `<package-name>` with the `-cli` suffix stripped.
 
 ### Three-level help
 
@@ -547,11 +550,12 @@ Reference: [`examples/exemplar-cli/.github/workflows/test.yml`](../examples/exem
 ├── lib/                              # api, auth, output, config, env, args, help
 ├── commands/                         # one file per resource + login
 ├── skills/
-│   ├── <api-name>-cli-workflow/SKILL.md     # primary; validate looks here
-│   ├── <api-name>-cli-auth/SKILL.md
-│   ├── <api-name>-cli-resources/SKILL.md
-│   └── <api-name>-cli-knowledge/SKILL.md
-├── knowledge/                        # business-rules + patterns extracted from docs
+│   └── <api-name>-cli/
+│       ├── SKILL.md                  # primary; validate looks here first
+│       └── references/               # auth.md, resources.md, knowledge/, …
+├── scripts/
+│   └── sync-skill-knowledge.mjs      # copies knowledge/ → skills/.../references/knowledge/
+├── knowledge/                        # source of truth; synced into the skill bundle
 ├── test/
 │   ├── smoke.test.mjs
 │   ├── integration.test.mjs

@@ -292,13 +292,13 @@ For `scheme !== none`, include:
 # <API>_BASE_URL=http://127.0.0.1:3000
 ```
 
-### `skills/<api-name>-cli-workflow/SKILL.md`
+### `skills/<api-name>-cli/SKILL.md`
 
-Rewrite Triggers, Quick Reference table, Common Workflows. Preserve the YAML frontmatter shape (name, description, allowed-tools). The skill must mention every resource and the `knowledge/` directory.
+Rewrite triggers, setup, workflow, examples. Frontmatter: `name` + `description` (third-person, trigger-rich). Omit vendor-specific tool lists unless required by the target agent product. The skill must mention every resource and instruct readers to consult bundled `references/knowledge/` (the substring `knowledge/` satisfies the structural gate).
 
-### `skills/<api-name>-cli-{auth,resources,knowledge}/SKILL.md`
+### `skills/<api-name>-cli/references/{auth.md,resources.md,knowledge-authoring.md}`
 
-Light edit. Auth: update token storage notes. Resources: regenerate the resource × action table from the parsed registry. Knowledge: list the knowledge files extracted from docs.
+Auth + resources: update from the parsed registry. Knowledge authoring: optional pointer for extending repo-root `knowledge/`. Run `npm run sync:skill-knowledge` (from the exemplar script name; rename in generated repos if needed) so `references/knowledge/` mirrors `knowledge/`.
 
 ### `test/integration.test.mjs`
 

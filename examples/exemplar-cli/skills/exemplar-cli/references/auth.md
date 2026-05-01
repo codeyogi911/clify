@@ -1,12 +1,4 @@
----
-name: exemplar-cli-auth
-description: Manage authentication for the Exemplar API via exemplar-cli login. Use when the user asks how to authenticate, sign in, store/refresh credentials, or troubleshoot 401/403 errors.
-allowed-tools:
-  - Bash
-  - Read
----
-
-# exemplar-cli-auth
+# exemplar-cli authentication
 
 Manage credentials for `exemplar-cli`. The Exemplar API uses bearer-token auth.
 
