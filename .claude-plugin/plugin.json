@@ -10,6 +10,6 @@
   "repository": "https://github.com/codeyogi911/clify",
   "license": "MIT",
   "keywords": ["cli-generator", "api", "openapi", "codegen", "agent"],
-  "skills": "./skills",
+  "skills": ["./skills/clify"],
   "capabilities": ["network", "codegen", "file-write"]
 }
