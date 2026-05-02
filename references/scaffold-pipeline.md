@@ -17,6 +17,29 @@ If the URL serves JSON or YAML with a top-level `openapi:` or `swagger:` key, pa
 - `deprecated: true` → deprecated nuance
 - `securitySchemes` → auth scheme detection (`http: bearer` → `bearer`, `apiKey: header` → `api-key-header`, `http: basic` → `basic`)
 
+### GraphQL-first docs
+
+If the docs describe a GraphQL schema, queries/mutations, introspection, Relay
+connections, or a single `/graphql` endpoint, mark the generation as
+GraphQL-first instead of manufacturing fake REST paths. Extract:
+
+- queries/mutations/subscriptions → resource/action candidates
+- arguments and input object fields → flags plus `--body <json>` variable escape hatch
+- connection fields with `pageInfo { hasNextPage endCursor }` → cursor pagination
+- schema/version/scopes/GID/cost-throttling/staged-upload prose → knowledge files
+- official SDK/API client recommendation or required SDK setup → `nuances.officialSdk=true`
+
+### Node SDK/API client discovery
+
+If an official or clearly recommended Node package exists, default toward a
+thin CLI wrapper over that package when it handles meaningful API complexity
+(auth sessions, API versions, pagination, retries, serialization, GraphQL
+helpers, staged uploads, or provider signing). Preserve a deterministic local
+test path. The Shopify Admin CLI does this by using the SDK in production but
+falling back to plain fetch when `<API>_BASE_URL` is set, because the SDK
+validates live hosts. Skip npm packages that are unmaintained, license-unclear,
+poorly typed, huge for a tiny API, or impossible to point at a localhost mock.
+
 ### HTML / Markdown crawl
 
 If the URL serves HTML or Markdown, use `WebFetch` and:
@@ -45,6 +68,26 @@ If a fetched body is empty or shorter than ~200 bytes, the page is JS-rendered. 
 | DELETE | `delete` | Requires `--id` flag |
 
 Anything else: use the API's own verb (`approve`, `cancel`, `merge-upstream`).
+
+### GraphQL grouping
+
+Group GraphQL operations by domain noun, then map the operation suffix to an
+action:
+
+| GraphQL operation | Resource | Action |
+|---|---|---|
+| `products` connection | `products` | `list` |
+| `product(id:)` | `products` | `get` |
+| `productCreate` | `products` | `create` |
+| `productUpdate` | `products` | `update` |
+| `productSet` | `products` | `set` |
+| `orderEditBegin` | `orders` | `edit-begin` |
+
+Coverage entries use `method: "POST"` and paths like `/graphql#products.list`
+or provider-specific variants such as `/graphql.json#products.list`. Command
+action definitions use `kind: "graphql"`, not `method/path`, and may include
+`query`, `variables`, `paginatePath`, `project`, `resolveQuery`, and
+`postProcess`.
 
 **Status-mutation canonical naming (HARD-FAIL):** Endpoints matching `POST /<r>/:id/status/<state>` MUST map to action `mark-<state>` — no exceptions, no per-resource variation. The validator hard-fails on bare verbs (`void`, `confirm`) for status-mutation paths.
 
@@ -137,11 +180,16 @@ verified; `status` (if mistakenly emitted) is broken.
 | Signal | Nuance | Artifact |
 |---|---|---|
 | `cursor` / `next_page_token` / `page` / `offset` / `Link: rel=next` in responses | pagination=cursor\|page\|offset\|link-header | Multi-page integration test |
+| GraphQL `pageInfo.hasNextPage/endCursor` connection | pagination=cursor + graphqlFirst=true | `paginatePath` on list actions; multi-page GraphQL test |
 | `Idempotency-Key` header documented | idempotency=[<resource>.<action>...] | `--idempotency-key` flag wired; integration test asserts header |
 | `multipart/form-data` content type | multiPart=[<resource>.<action>...] | `--file` flag wired; integration test posts a fixture |
+| Staged upload target then finalize call | multiPart=[<resource>.<action>...] + businessRules | `postProcess` flow + `knowledge/staged-uploads.md` |
 | `deprecated: true` or "deprecated" prose | deprecated=[<resource>.<action>...] | `knowledge/deprecated-<resource>.md` OR coverage drop with reason `deprecated-in-docs` |
 | `X-RateLimit-*` headers, "rate limit" prose | rateLimits=true | `knowledge/rate-limit.md` (soft warn) |
+| GraphQL cost extensions / leaky bucket prose | rateLimits=true | `knowledge/cost-based-throttling.md` |
 | OAuth scopes documented | authScopes=true | `knowledge/auth-scopes.md` (soft warn) |
+| `gid://`, `Node`, opaque global IDs | businessRules++ | `knowledge/gid-format.md` |
+| official Node SDK/API client available and useful | officialSdk=true | dependency + `knowledge/why-official-sdk.md`; thin adapter + mock fallback preserved |
 | `If-Match` / `ETag` documented | conditional=[<resource>.<action>...] | `--if-match` flag (soft warn) |
 
 ---
@@ -201,7 +249,7 @@ The initial commit makes Phase 5's substitutions a clean diff the user can revie
 
 ### `commands/<resource>.mjs`
 
-Replace the exemplar's three command files (`items.mjs`, `item-variants.mjs`, `orders.mjs`, `login.mjs`) with one file per parsed resource. Each default-exports:
+Replace the exemplar's three command files (`items.mjs`, `item-variants.mjs`, `orders.mjs`, `login.mjs`) with one file per parsed resource. Each REST command default-exports:
 
 ```js
 export default {
@@ -215,6 +263,31 @@ export default {
 ```
 
 Keep `login.mjs` if the API has authentication; delete it if `auth.scheme === "none"`.
+
+GraphQL command files use the same resource wrapper, but actions look like:
+
+```js
+list: {
+  kind: "graphql",
+  path: "/graphql",
+  description: "List products.",
+  paginatePath: "products",
+  query: `query Products($first: Int!, $after: String, $query: String) { ... }`,
+  flags: {
+    first: { type: "string", description: "Page size (default 50)" },
+    after: { type: "string", description: "Cursor" },
+    query: { type: "string", description: "Search/filter syntax" }
+  },
+  variables: (v) => ({ first: v.first ? Number(v.first) : 50, after: v.after, query: v.query }),
+  project: (data) => data.products
+}
+```
+
+The dispatcher automatically adds `--body <json>` to every GraphQL action as
+the raw variables escape hatch, so command definitions only need to list
+workflow-specific flags unless they want to override the `--body` description.
+Add a raw `gql run` resource and `introspect` helpers for GraphQL-first APIs
+unless introspection is disabled or the user explicitly excludes them.
 
 Flag rules:
 
@@ -231,7 +304,7 @@ Edit only:
 - The `import` lines for each `commands/<resource>.mjs` file.
 - The `COMMANDS = [...]` array.
 
-Leave `loadEnv`, `splitGlobal`, `runResourceAction`, `interpolatePath`, `main` exactly as in the exemplar.
+Leave `loadEnv`, `splitGlobal`, `runResourceAction`, `interpolatePath`, `main` exactly as in the exemplar. The dispatcher already handles REST actions and `kind: "graphql"` actions; do not fork it just because the API is GraphQL-first.
 
 ### `lib/auth.mjs`
 
@@ -252,6 +325,25 @@ If the OAuth provider needs additional region/datacenter routing (e.g. Zoho's `a
 ### `lib/api.mjs`
 
 Generally unchanged. Edit the `BASE_URL` default if the API doesn't have a single canonical URL (e.g., region-routed APIs may need a `<API>_REGION` env var that selects the base URL — add it next to `BASE_URL`).
+
+For GraphQL-first APIs, use the built-in `graphqlRequest` and
+`paginateGraphql` helpers. They delegate through `apiRequest`, so dry-run
+redaction, auth, structured errors, and `<API>_BASE_URL` test overrides stay
+intact. If a Node SDK/API client is selected, add a tiny provider adapter
+(`lib/<provider>.mjs`) and keep a plain-fetch fallback whenever `<API>_BASE_URL`
+is set and the package cannot be pointed at the mock server.
+
+### `package.json`
+
+Generated repos stay dependency-free by default. Add dependencies when the docs
+provide/recommend an official Node SDK/API client, or when the client handles
+auth/session/version/pagination/serialization rules that are risky to
+reimplement. When you do:
+
+- add the dependency to `package.json` (and lockfile if generated)
+- set `.clify.json.nuances.officialSdk = true`
+- write `knowledge/why-official-sdk.md` explaining why the package is preferable to raw fetch
+- keep `npm test` fully local and deterministic
 
 ### `.clify.json`
 
@@ -277,6 +369,12 @@ One entry per probed-or-skipped filter. Skipping a filter entirely (no
 entry) is forbidden when the resource declares filter-shaped flags —
 the validator hard-fails that.
 
+For GraphQL-first APIs, include `nuances.graphqlFirst = true`; for official or
+provider-recommended SDK/API-client-backed CLIs, include
+`nuances.officialSdk = true`. These signals force the generated repo to carry
+the right knowledge files and prevent future syncs from "simplifying" the
+client package or GraphQL substrate away.
+
 ### `.env.example`
 
 For `scheme !== none`, include:
@@ -296,6 +394,14 @@ For `scheme !== none`, include:
 
 Rewrite triggers, setup, workflow, examples. Frontmatter: `name` + `description` (third-person, trigger-rich). Omit vendor-specific tool lists unless required by the target agent product. The skill must mention every resource and instruct readers to consult bundled `references/knowledge/` (the substring `knowledge/` satisfies the structural gate).
 
+For a published standalone skill, make the skill self-contained:
+
+- include `## Install skill` with `npx --yes skills@latest add ...`
+- include `## Install CLI` from the same Git repository when the binary is not on npm
+- keep exactly one public umbrella skill under `skills/<api-name>-cli/`
+- set `.claude-plugin/plugin.json` to `"skills": ["./skills/<api-name>-cli"]` exactly
+- do not publish internal shard skills; put auth/resources/knowledge under `references/`
+
 ### `skills/<api-name>-cli/references/{auth.md,resources.md,knowledge-authoring.md}`
 
 Auth + resources: update from the parsed registry. Knowledge authoring: optional pointer for extending repo-root `knowledge/`. Run `npm run sync:skill-knowledge` (from the exemplar script name; rename in generated repos if needed) so `references/knowledge/` mirrors `knowledge/`.
@@ -305,8 +411,10 @@ Auth + resources: update from the parsed registry. Knowledge authoring: optional
 For each resource, exercise every action against the mock server. Fixture data should match the API's response shape. Add nuance tests:
 
 - Pagination → multi-page test using a function handler that toggles on `req.query.cursor`.
+- GraphQL pagination → two mock `POST /graphql` responses with `pageInfo.endCursor`, run the list action with `--all`, assert both pages are collected.
 - Idempotency → assert `server.requests[0].headers["idempotency-key"]` is sent.
 - Multipart → use a temp file and assert `content-type` matches `/multipart\/form-data/`.
+- SDK/API-client-backed GraphQL → with `<API>_BASE_URL` set, assert the CLI hits the local mock, not the live provider host.
 
 ### `coverage.json`
 
@@ -382,6 +490,8 @@ The validator catches structural failures, but it can't catch "the LLM substitut
 > 5. **Family-consistency**: re-group `coverage.json.endpoints` by sub-path tail. For each tail in `[comments, attachments, refunds, tags, notes, metadata]` exposed by ≥3 resources, every sibling either includes that sub-path OR has a `coverage.json` drop with `reason: "sibling-asymmetry-confirmed"`.
 > 6. **Status-verb canonical**: every `POST /<r>/:id/status/<state>` endpoint maps to action `mark-<state>` in `commands/<r>.mjs` and `coverage.json`.
 > 7. **No hand-rolled OAuth logic** (when scheme is oauth-refresh): `lib/auth.mjs`'s function bodies for `refreshAccessToken`, `resolveOAuthToken`, `applyAuth`, `authStatus` match the exemplar's structure (acceptable diffs: constants only). If the LLM extended these, FAIL with the offending file:line.
+> 8. **GraphQL substrate** (when `.clify.json.nuances.graphqlFirst === true`): command defs use `kind: "graphql"` and coverage paths use `/graphql#resource.action` or `/graphql.json#resource.action`; list actions with Relay connections use `paginatePath`; raw `gql` and introspection helpers are present unless documented as excluded.
+> 9. **SDK/API-client fallback** (when `.clify.json.nuances.officialSdk === true`): package.json declares the dependency, `knowledge/why-official-sdk.md` exists, and integration tests prove `<API>_BASE_URL` redirects to a local mock instead of the live provider.
 >
 > Return a JSON object: `{ ok, items: [{ id, status, evidence }], blockers: [...] }`.
 

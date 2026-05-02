@@ -36,21 +36,21 @@ The strategy is **copy exemplar + mechanically substitute** — quality comes fr
 
 ### 1. Fetch & detect
 
-`WebFetch` the URL. If the body is OpenAPI/Swagger (JSON or YAML with `openapi:` or `swagger:` key), parse directly — fast path. Otherwise treat as HTML/Markdown and crawl up to depth 2 with `WebFetch`, deduping normalized URLs and rate-limiting at 1s. If the page is JS-rendered with empty content, ask for an OpenAPI URL instead via `AskUserQuestion`.
+`WebFetch` the URL. If the body is OpenAPI/Swagger (JSON or YAML with `openapi:` or `swagger:` key), parse directly — fast path. If the docs are GraphQL-first (schema reference, queries/mutations, introspection, Relay connections), mark `.clify.json.nuances.graphqlFirst = true` and parse operations instead of pretending everything is REST. Otherwise treat as HTML/Markdown and crawl up to depth 2 with `WebFetch`, deduping normalized URLs and rate-limiting at 1s. If the page is JS-rendered with empty content, ask for an OpenAPI URL instead via `AskUserQuestion`.
 
 ### 2. Parse & group
 
-Extract method, path, params, request/response shapes. Group endpoints by first path segment as a resource. Apply CRUD verb mapping from `conventions.md`; keep the API's own verbs for non-CRUD endpoints. Cap nesting at two levels — flatten sub-resources into hyphenated top-level resource names (`item-variants`, not `items variants`).
+Extract method, path, params, request/response shapes. Group endpoints by first path segment as a resource. For GraphQL, group queries/mutations by the domain noun in the field or input type (`productCreate` → `products.create`, `orderEditBegin` → `orders.edit-begin`) and store coverage paths as `/graphql#<resource>.<action>`. Apply CRUD verb mapping from `conventions.md`; keep the API's own verbs for non-CRUD endpoints. Cap nesting at two levels — flatten sub-resources into hyphenated top-level resource names (`item-variants`, not `items variants`).
 
 **Family-consistency** (HARD-FAIL in validator): after grouping, check sub-path tails (`/comments`, `/attachments`, `/refunds`, `/tags`, `/notes`, `/metadata`). If ≥3 sibling resources expose the same sub-path, every sibling must either include it or be explicitly dropped with `reason: "sibling-asymmetry-confirmed"` in `coverage.json`.
 
 **Status-mutation canonical naming** (HARD-FAIL): every `POST /<r>/:id/status/<state>` endpoint maps to action `mark-<state>`. No exceptions, no per-resource variation.
 
-Detect nuances inline: pagination (cursor / page / offset / link-header), idempotency keys, multipart uploads, deprecated endpoints, rate limits, auth scopes, conditional requests, business rules. Each detected nuance maps to a `.clify.json.nuances.*` field plus an artifact (test, knowledge file, CLI flag).
+Detect nuances inline: pagination (cursor / page / offset / link-header / GraphQL `pageInfo`), idempotency keys, multipart or staged uploads, deprecated endpoints, rate limits or GraphQL cost throttling, auth scopes, global ID formats, API versions, conditional requests, official SDK / Node API client availability, and business rules. Each detected nuance maps to a `.clify.json.nuances.*` field plus an artifact (test, knowledge file, CLI flag).
 
 ### 3. Consult
 
-Use `AskUserQuestion` for unresolved tradeoffs — resource grouping, ambiguous verbs, what to drop. Also ask **where** the new repo should live (default: parent of cwd, sibling of the current directory). Record dropped endpoints with one of the allowed reasons in `references/validation-gate.md` — never silently drop.
+Before deciding the transport layer, check the provider docs for a Node/JavaScript SDK or API client (`npm install`, "Node SDK", "JavaScript client", generated OpenAPI client). Prefer an official or clearly recommended package when it makes the CLI a thin wrapper over real provider logic. Use `AskUserQuestion` for unresolved tradeoffs — resource grouping, ambiguous verbs, package-vs-fetch when the SDK is marginal, what to drop. Also ask **where** the new repo should live (default: parent of cwd, sibling of the current directory). Record dropped endpoints with one of the allowed reasons in `references/validation-gate.md` — never silently drop.
 
 ### 4. Init from exemplar
 
@@ -82,14 +82,14 @@ Edit only what changes per API. Preserve helper signatures (`apiRequest`, `outpu
 >
 > Pre-v0.5 generations guessed `listFilters` from naming convention; that produced CLIs that lied to users (filter passed → CLI shows help → API ignores it → user gets unfiltered results with no warning). The Fix Coffee Zoho rollout's `refund_cleanup_audit.py` mis-classified every SO as having returns until this was caught.
 
-- `commands/<resource>.mjs` — replace the exemplar's items/orders/item-variants with the parsed resources. One file per resource. Each default-exports `{ name, actions, buildPayload? }`.
-- `bin/<api-name>-cli.mjs` — update the imports and `COMMANDS` array to reflect the new resource set; everything else stays.
+- `commands/<resource>.mjs` — replace the exemplar's items/orders/item-variants with the parsed resources. One file per resource. REST actions use `{ method, path, flags, ... }`; GraphQL actions use `{ kind: "graphql", path: "/graphql", query, variables, paginatePath?, project?, postProcess?, flags }`. Keep raw escape hatches: `--body <json>` for REST payloads; the dispatcher auto-adds `--body <json>` as raw variables for GraphQL actions. Add `gql run` / `introspect` resources for GraphQL-first APIs.
+- `bin/<api-name>-cli.mjs` — update the imports and `COMMANDS` array to reflect the new resource set; everything else stays. The exemplar dispatcher already understands REST plus `kind: "graphql"` actions.
 - `lib/auth.mjs` — set `SCHEME` and `ENV_VAR`. The exemplar implements all five schemes (`bearer | api-key-header | basic | none | oauth-refresh`). For `oauth-refresh`, set `TOKEN_URL`, `REFRESH_ENV`, `CLIENT_ID_ENV`, `CLIENT_SECRET_ENV`, `NO_CACHE_ENV`, and `OAUTH_WIRE_PREFIX` only — DO NOT modify `refreshAccessToken`, `resolveOAuthToken`, `applyAuth`, or `authStatus`. Replace the exemplar's `__EXEMPLAR_DEV_SCHEME` env-fallback line with a hardcoded `const SCHEME = "<chosen>";`.
-- `lib/api.mjs` — generally unchanged. The dry-run secret redaction (`redactHeaders`) is a contract; never delete it. `--show-secrets` is the only opt-out.
+- `lib/api.mjs` — generally unchanged. Use the built-in `graphqlRequest` / `paginateGraphql` helpers for GraphQL-first APIs. If the provider ships an official or clearly recommended Node SDK/API client, prefer a thin CLI wrapper over that package instead of reimplementing transport. Wrap the package in a small provider adapter, but preserve the same `BASE_URL` mock override, dry-run redaction, structured errors, and a plain-fetch test path when the client refuses localhost.
 - `lib/config.mjs` — replace the `__EXEMPLAR_DEV_CONFIG_DIR` env-fallback line with a hardcoded `const CONFIG_DIR = join(homedir(), ".config", "<api>-cli");`.
-- `.clify.json` — fill `auth`, `defaults`, `nuances`, `coverage`, `contentHash` from the parsed spec. For `oauth-refresh`, also set `auth.{tokenUrl, refreshEnvVar, clientIdEnvVar, clientSecretEnvVar}` (validator hard-fails their absence).
+- `.clify.json` — fill `auth`, `defaults`, `nuances`, `coverage`, `contentHash` from the parsed spec. For GraphQL-first APIs, include `nuances.graphqlFirst = true`; for SDK/API-client-backed CLIs, include `nuances.officialSdk = true` when the package is official or provider-recommended and write `knowledge/why-official-sdk.md`. For `oauth-refresh`, also set `auth.{tokenUrl, refreshEnvVar, clientIdEnvVar, clientSecretEnvVar}` (validator hard-fails their absence).
 - `.env.example` — set `@required` / `@how-to-get` annotations on the auth var (skip for `scheme: none`). For `oauth-refresh`, uncomment the OAuth triplet and the `<API>_NO_CACHE` line; remove the static `<API>_API_KEY` block (or leave it commented as the pre-minted-token path).
-- `skills/<api-name>-cli/SKILL.md` — Umbrella skill (triggers, setup, workflow). Keep `references/auth.md`, `references/resources.md`, and a synced `references/knowledge/` bundle alongside it.
+- `skills/<api-name>-cli/SKILL.md` — the one public umbrella skill (triggers, setup, workflow). Keep `references/auth.md`, `references/resources.md`, and a synced `references/knowledge/` bundle alongside it. Set `.claude-plugin/plugin.json` to `"skills": ["./skills/<api-name>-cli"]` exactly; do not create public sibling shard skills. Put aliases and alternate API names in this skill's description/triggers instead of adding duplicate sibling skills.
 - `test/integration.test.mjs` — rewrite per-resource fixtures. Add nuance tests as required (multi-page for pagination, idempotency-key header assertion, FormData for multipart).
 - `coverage.json` + `knowledge/<short-topic>.md` files for any business rules surfaced in step 2.
 - `README.md` — lead with `## Install` and `## Authenticate` (validator hard-fails if missing); the existing Layout / Use / Test sections follow.
@@ -131,12 +131,16 @@ Never declare done while either the gate or the verification subagent has unreso
 - Don't declare list-filter flags you haven't verified work upstream. Probe each one individually (`--<filter> <value-that-should-match>` vs unfiltered baseline) and log the result in `.clify.json.filterProbes`. If documented but silently ignored, declare in `brokenListFilters` so the runtime falls back to client-side filtering; never silently expose a flag that lies. Don't blanket-mark every filter on a resource as broken from one failed probe — the validator's `filter-coverage` check hard-fails on that pattern.
 - Don't normalize away the suffix on `*_startswith` / `*_contains` / `*_start` / `*_end` filter variants. The suffix IS the filter mode. Emit each documented variant as its own flag with the documented name verbatim.
 - Don't route a foreign-key into the body when the upstream docs list it as a query parameter on a `POST` create. Use `queryFlags` so the runtime puts it on the URL — most "convert from X" modes work ONLY via the query string and silently no-op via the body.
+- Don't force GraphQL APIs into fake REST shapes. Use `kind: "graphql"` action defs, GraphQL coverage paths (`/graphql#...` or provider-specific `/graphql.json#...`), `paginatePath` for connections, and knowledge files for schema gotchas such as global IDs, cost throttling, staged uploads, and mutation sequencing.
+- Don't add a random npm package just because it exists. Prefer the provider's official or clearly recommended Node SDK/API client when it handles real complexity (auth sessions, API versions, pagination, retries, serialization, GraphQL helpers, staged uploads). Skip packages that are unmaintained, poorly typed, license-unclear, huge for a tiny API, or impossible to point at a localhost mock. If you do use one, keep the CLI thin and keep tests deterministic with a `BASE_URL`/mock fallback.
+- Don't publish multiple skills for one generated CLI. Auth, resources, workflows, and knowledge are chapters under one umbrella skill, not separate model-invoked routing surfaces.
 
 ## Edge cases
 
 - **API has no auth** → `auth.scheme: "none"`, leave `auth.envVar` set to `<API>_API_KEY` for shape consistency, skip the `@required` annotation. The gate accepts this.
 - **API uses OAuth-refresh** (Zoho, Google, Notion, GitHub Apps, Slack, Stripe Connect, …) → `auth.scheme: "oauth-refresh"`. Substitute `TOKEN_URL` + the env-var prefix constants only — never edit the OAuth function bodies.
 - **API uses cookie auth** → not supported; ask for a session-token alternative or stop with a clear message.
+- **API is GraphQL-first** → use `kind: "graphql"` actions, expose `gql run` and introspection helpers, record `nuances.graphqlFirst`, and model connection pagination via `paginatePath` + `pageInfo.endCursor`.
 - **API only documented as a curl tutorial** → ask for an OpenAPI URL or to confirm the resource set by hand.
 - **Resource has 12 actions** → flatten with sub-resources or hyphenated action names; do not exceed the two-level nesting cap.
 - **OAuth provider needs region/datacenter routing** (e.g. Zoho's `accounts.zoho.<dc>`) → wrap `TOKEN_URL` in a small helper that reads a `<API>_DC` env var. This is the only API-specific extension allowed inside `lib/auth.mjs` for `oauth-refresh`.

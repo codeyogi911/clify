@@ -101,6 +101,32 @@ test("validate: package.json/plugin.json version mismatch → manifest fail", as
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("validate: multiple public skill shards → manifest fail", async () => {
+  const { root, repo } = freshCopy();
+  try {
+    const shardDir = join(repo, "skills/exemplar-cli-auth");
+    mkdirSync(shardDir, { recursive: true });
+    writeFileSync(shardDir + "/SKILL.md", `---
+name: exemplar-cli-auth
+description: Auth shard that should not be public.
+---
+
+# Auth shard
+`);
+
+    const ppath = join(repo, ".claude-plugin/plugin.json");
+    const p = JSON.parse(readFileSync(ppath, "utf8"));
+    p.skills = ["./skills/exemplar-cli", "./skills/exemplar-cli-auth"];
+    writeFileSync(ppath, JSON.stringify(p, null, 2));
+
+    const r = await validate(repo, { skipTests: true });
+    assert.ok(
+      r.results.some((x) => !x.ok && x.category === "manifest" && /one umbrella skill|extra public skill shards/.test(x.name)),
+      `expected public shard failure; got ${JSON.stringify(r.results.filter((x) => !x.ok), null, 2)}`,
+    );
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("validate: silent drop in coverage.json → coverage fail", async () => {
   const { root, repo } = freshCopy();
   try {
@@ -149,6 +175,36 @@ test("validate: nuance declared without artifact → nuances fail", async () => 
     writeFileSync(cpath, JSON.stringify(cfg, null, 2));
     const r = await validate(repo, { skipTests: true });
     assert.ok(r.results.some((x) => !x.ok && x.category === "nuances"));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("validate: graphqlFirst requires GraphQL action defs and coverage paths", async () => {
+  const { root, repo } = freshCopy();
+  try {
+    const cpath = join(repo, ".clify.json");
+    const cfg = JSON.parse(readFileSync(cpath, "utf8"));
+    cfg.nuances.graphqlFirst = true;
+    writeFileSync(cpath, JSON.stringify(cfg, null, 2));
+    const r = await validate(repo, { skipTests: true });
+    assert.ok(
+      r.results.some((x) => !x.ok && x.category === "nuances" && /graphqlFirst/.test(x.name)),
+      `expected graphqlFirst nuance failure; got ${JSON.stringify(r.results.filter((x) => !x.ok), null, 2)}`,
+    );
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("validate: officialSdk requires dependency and rationale knowledge", async () => {
+  const { root, repo } = freshCopy();
+  try {
+    const cpath = join(repo, ".clify.json");
+    const cfg = JSON.parse(readFileSync(cpath, "utf8"));
+    cfg.nuances.officialSdk = true;
+    writeFileSync(cpath, JSON.stringify(cfg, null, 2));
+    const r = await validate(repo, { skipTests: true });
+    assert.ok(
+      r.results.some((x) => !x.ok && x.category === "nuances" && /officialSdk/.test(x.name)),
+      `expected officialSdk nuance failure; got ${JSON.stringify(r.results.filter((x) => !x.ok), null, 2)}`,
+    );
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

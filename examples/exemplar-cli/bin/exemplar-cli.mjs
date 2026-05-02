@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { loadEnv } from "../lib/env.mjs";
 import { splitGlobal, hasHelp, toParseArgs, checkRequired, checkEnum } from "../lib/args.mjs";
 import { output, errorOut } from "../lib/output.mjs";
-import { apiRequest, paginate } from "../lib/api.mjs";
+import { apiRequest, graphqlRequest, paginate, paginateGraphql } from "../lib/api.mjs";
 import { showRootHelp, showResourceHelp, showActionHelp } from "../lib/help.mjs";
 import { pickQueryFlags, stripQueryFlags, pickBrokenFilters, clientFilter } from "../lib/quirks.mjs";
 
@@ -38,13 +38,54 @@ const PAYLOAD_BUILDERS = Object.fromEntries(COMMANDS.map((c) => [c.name, c.build
 
 function interpolatePath(template, values) {
   let path = template;
-  for (const m of template.matchAll(/:([a-zA-Z_]+)/g)) {
+  for (const m of template.matchAll(/:(\w+)/g)) {
     const k = m[1];
     const v = values[k];
     if (v === undefined) errorOut("validation_error", `Missing path parameter --${k}`);
     path = path.replace(`:${k}`, encodeURIComponent(String(v)));
   }
   return path;
+}
+
+function pathParamNames(template = "") {
+  return [...template.matchAll(/:(\w+)/g)].map((m) => m[1]);
+}
+
+function parseJsonFlag(value, flagName) {
+  try { return JSON.parse(value); }
+  catch { errorOut("validation_error", `--${flagName} must be valid JSON`); }
+}
+
+function actionFlags(def) {
+  const flags = def.flags || {};
+  if (def.kind !== "graphql") return flags;
+  return {
+    body: { type: "string", description: "Raw GraphQL variables JSON (overrides individual flags)" },
+    ...flags,
+  };
+}
+
+function buildVariables(def, values) {
+  if (typeof def.variables === "function") return def.variables(values);
+  const out = {};
+  for (const [k, v] of Object.entries(values)) {
+    if (v === undefined) continue;
+    if (["body", "file", "idempotency-key", "if-match"].includes(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+function buildRestQuery(def, values) {
+  const pathParams = new Set(pathParamNames(def.path));
+  const query = {};
+  for (const [k, v] of Object.entries(values)) {
+    if (v === undefined || v === null || v === "") continue;
+    if (pathParams.has(k)) continue;
+    if (["body", "file", "idempotency-key", "if-match"].includes(k)) continue;
+    query[k] = v;
+  }
+  return query;
 }
 
 // Action defs may opt into two upstream-API-quirk handlers (see lib/quirks.mjs):
@@ -63,20 +104,77 @@ async function runResourceAction(resourceArg, actionArg, remaining, global, rest
     return;
   }
 
+  const flags = actionFlags(def);
   let parsed;
   try {
-    parsed = parseArgs({ args: remaining, options: toParseArgs(def.flags), strict: true, allowPositionals: false });
+    parsed = parseArgs({ args: remaining, options: toParseArgs(flags), strict: true, allowPositionals: false });
   } catch (err) {
     errorOut("validation_error", err.message);
   }
 
-  const missing = checkRequired(parsed.values, def.flags);
+  const missing = checkRequired(parsed.values, flags);
   if (missing.length) errorOut("validation_error", `Missing required flag(s): ${missing.map((m) => `--${m}`).join(", ")}`);
 
-  const enumViolations = checkEnum(parsed.values, def.flags);
+  const enumViolations = checkEnum(parsed.values, flags);
   if (enumViolations.length) {
     const v = enumViolations[0];
     errorOut("validation_error", `--${v.flag}=${v.value} is not allowed; expected one of: ${v.allowed.join(", ")}`);
+  }
+
+  if (def.kind === "graphql") {
+    let query = def.query;
+    if (typeof def.resolveQuery === "function") {
+      query = def.resolveQuery(parsed.values);
+      if (!query) errorOut("validation_error", "Provide --query or --query-file");
+    }
+
+    const variables = parsed.values.body ? parseJsonFlag(parsed.values.body, "body") : buildVariables(def, parsed.values);
+    const requestPath = def.path || "/graphql";
+
+    if (global.all && def.paginatePath) {
+      const collected = [];
+      for await (const item of paginateGraphql({
+        path: requestPath,
+        query,
+        variables,
+        paginatePath: def.paginatePath,
+        version: VERSION,
+        dryRun: !!global.dry_run,
+        verbose: !!global.verbose,
+        showSecrets: !!global.show_secrets,
+        idempotencyKey: parsed.values["idempotency-key"],
+        ifMatch: parsed.values["if-match"],
+      })) {
+        if (item?.__dryRun) { output(item, !!global.json); return; }
+        collected.push(item);
+      }
+      output(collected, !!global.json);
+      return;
+    }
+
+    const data = await graphqlRequest({
+      path: requestPath,
+      query,
+      variables,
+      version: VERSION,
+      dryRun: !!global.dry_run,
+      verbose: !!global.verbose,
+      showSecrets: !!global.show_secrets,
+      idempotencyKey: parsed.values["idempotency-key"],
+      ifMatch: parsed.values["if-match"],
+    });
+    if (data?.__dryRun) { output(data, !!global.json); return; }
+    if (typeof def.postProcess === "function") {
+      const finalData = await def.postProcess(data, parsed.values);
+      output(typeof def.project === "function" ? def.project(finalData) : finalData, !!global.json);
+      return;
+    }
+    output(typeof def.project === "function" ? def.project(data) : data, !!global.json);
+    return;
+  }
+
+  if (def.kind && def.kind !== "rest") {
+    errorOut("validation_error", `Unknown action kind: ${def.kind}`);
   }
 
   const path = interpolatePath(def.path, parsed.values);
@@ -85,8 +183,7 @@ async function runResourceAction(resourceArg, actionArg, remaining, global, rest
   let body;
   if (def.method !== "GET" && def.method !== "DELETE" && !parsed.values.file) {
     if (parsed.values.body) {
-      try { body = JSON.parse(parsed.values.body); }
-      catch { errorOut("validation_error", "--body must be valid JSON"); }
+      body = parseJsonFlag(parsed.values.body, "body");
     } else {
       body = buildPayload(stripQueryFlags(parsed.values, def));
     }
@@ -109,10 +206,7 @@ async function runResourceAction(resourceArg, actionArg, remaining, global, rest
   // broken filter forces the full-list fallback.
   if ((global.all || hasBrokenFilters) && actionArg === "list") {
     const collected = [];
-    const query = {};
-    if (parsed.values.cursor) query.cursor = parsed.values.cursor;
-    if (parsed.values.limit) query.limit = parsed.values.limit;
-    if (parsed.values.status) query.status = parsed.values.status;
+    const query = buildRestQuery(def, parsed.values);
     for await (const item of paginate({ method: def.method, path, query, version: VERSION, dryRun: !!global.dry_run, verbose: !!global.verbose, showSecrets: !!global.show_secrets })) {
       collected.push(item);
     }
@@ -125,10 +219,7 @@ async function runResourceAction(resourceArg, actionArg, remaining, global, rest
   // declared queryFlags on non-GET actions (e.g. convert-from-X creates).
   let query;
   if (def.method === "GET" && actionArg !== "get") {
-    query = {};
-    for (const [k, v] of Object.entries(parsed.values)) {
-      if (v !== undefined && k !== "id") query[k] = v;
-    }
+    query = buildRestQuery(def, parsed.values);
   } else {
     query = pickQueryFlags(parsed.values, def);
   }

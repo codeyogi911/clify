@@ -1,8 +1,10 @@
-// HTTP layer: apiRequest + cursor-pagination iterator.
+// HTTP layer: apiRequest + REST/GraphQL pagination iterators.
 //
 // `apiRequest` is the only place that talks to fetch(). It handles auth
 // injection, multipart uploads, dry-run mode, verbose logging, and maps
 // HTTP status to the structured error codes documented in conventions.md.
+// GraphQL helpers intentionally delegate through it so generated GraphQL-first
+// CLIs keep the same auth, redaction, BASE_URL override, and error behaviour.
 import { readFileSync, existsSync } from "node:fs";
 import { errorOut } from "./output.mjs";
 import { applyAuth } from "./auth.mjs";
@@ -100,6 +102,27 @@ export async function apiRequest({ method, path, query, body, headers = {}, dryR
   errorOut("network_error", baseMsg);
 }
 
+export async function graphqlRequest({ path = "/graphql", query, variables = {}, headers = {}, dryRun, verbose, idempotencyKey, ifMatch, version = "0.0.0", showSecrets = false }) {
+  if (!query) errorOut("validation_error", "GraphQL action missing query");
+  const result = await apiRequest({
+    method: "POST",
+    path,
+    body: { query, variables },
+    headers,
+    dryRun,
+    verbose,
+    idempotencyKey,
+    ifMatch,
+    version,
+    showSecrets,
+  });
+  if (result?.__dryRun) return result;
+  if (Array.isArray(result?.errors) && result.errors.length) {
+    errorOut("validation_error", result.errors[0]?.message || "GraphQL error", { details: result.errors });
+  }
+  return result?.data ?? result;
+}
+
 // Cursor-pagination iterator. Server convention: list responses carry
 // `{ items: [...], nextCursor: "..." | null }`. When `nextCursor` is null
 // or absent, iteration stops. Used by list actions when --all is set.
@@ -113,5 +136,29 @@ export async function* paginate(opts) {
     for (const item of (page.items || [])) yield item;
     if (!page.nextCursor) return;
     cursor = page.nextCursor;
+  }
+}
+
+// GraphQL connection-pagination iterator. Generated GraphQL-first CLIs set
+// `paginatePath` to a dotted path in the response data, such as "products" or
+// "shop.orders". The node at that path must expose pageInfo plus nodes/edges.
+export async function* paginateGraphql({ path = "/graphql", query, variables = {}, paginatePath, pageSize = 50, dryRun, verbose, idempotencyKey, ifMatch, version = "0.0.0", showSecrets = false }) {
+  if (!paginatePath) errorOut("validation_error", "GraphQL pagination missing paginatePath");
+  let cursor = variables.after || null;
+  while (true) {
+    const vars = { ...variables };
+    if (vars.first === undefined && pageSize) vars.first = pageSize;
+    if (cursor) vars.after = cursor;
+    else delete vars.after;
+
+    const data = await graphqlRequest({ path, query, variables: vars, dryRun, verbose, idempotencyKey, ifMatch, version, showSecrets });
+    if (data?.__dryRun) { yield data; return; }
+
+    const connection = paginatePath.split(".").reduce((obj, key) => (obj ? obj[key] : undefined), data);
+    if (!connection) return;
+    const items = connection.nodes || (connection.edges ? connection.edges.map((edge) => edge.node) : []);
+    for (const item of items) yield item;
+    if (!connection.pageInfo?.hasNextPage) return;
+    cursor = connection.pageInfo.endCursor;
   }
 }

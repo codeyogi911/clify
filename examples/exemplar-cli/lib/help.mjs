@@ -11,11 +11,27 @@ export function showRootHelp(version, registry) {
   return out;
 }
 
+function describeAction(def) {
+  if (def.kind === "graphql") return `GraphQL ${def.opType || "operation"}`;
+  if (def.kind === "rest") return `${def.method} ${def.path}`;
+  if (def.method && def.path) return `${def.method} ${def.path}`;
+  return "(operation)";
+}
+
+function actionFlags(def) {
+  const flags = def.flags || {};
+  if (def.kind !== "graphql") return flags;
+  return {
+    body: { type: "string", description: "Raw GraphQL variables JSON (overrides individual flags)" },
+    ...flags,
+  };
+}
+
 export function showResourceHelp(resource, registry) {
   const actions = registry[resource];
   let out = `${CLI} ${resource}\n\nActions:\n`;
   for (const [name, def] of Object.entries(actions)) {
-    out += `  ${name.padEnd(10)} ${def.method} ${def.path}\n`;
+    out += `  ${name.padEnd(10)} ${describeAction(def)}\n`;
   }
   out += `\nUse '${CLI} ${resource} <action> --help' for flags.\n`;
   return out;
@@ -23,10 +39,10 @@ export function showResourceHelp(resource, registry) {
 
 export function showActionHelp(resource, action, registry) {
   const def = registry[resource][action];
-  let out = `${CLI} ${resource} ${action}\n\n${def.method} ${def.path}\n\n`;
+  let out = `${CLI} ${resource} ${action}\n\n${describeAction(def)}\n\n`;
   if (def.description) out += `${def.description}\n\n`;
   out += `Flags:\n`;
-  const entries = Object.entries(def.flags);
+  const entries = Object.entries(actionFlags(def));
   if (entries.length === 0) out += `  (none)\n`;
   for (const [name, spec] of entries) {
     const req = spec.required ? "required" : "optional";

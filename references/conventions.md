@@ -26,6 +26,31 @@ Generated CLIs use the resource-action pattern:
 
 Non-CRUD endpoints use the API's own verb (`capture`, `verify`, `merge-upstream`).
 
+### GraphQL-first APIs
+
+Do not flatten GraphQL APIs into fake REST endpoints. Generated CLIs still use
+`<resource> <action>`, but each action definition should declare
+`kind: "graphql"` plus a GraphQL document:
+
+```js
+list: {
+  kind: "graphql",
+  path: "/graphql",
+  description: "List products.",
+  paginatePath: "products",
+  query: `query Products($first: Int!, $after: String) { ... }`,
+  flags: { first: { type: "string", description: "Page size" } },
+  variables: (v) => ({ first: v.first ? Number(v.first) : 50, after: v.after }),
+  project: (data) => data.products
+}
+```
+
+Coverage paths use `/graphql#<resource>.<action>` or a provider-specific
+variant such as `/graphql.json#<resource>.<action>` so the gate can still map
+one generated action to one upstream operation. GraphQL-first CLIs should also
+expose a raw `gql run` action and schema introspection helpers unless the API
+forbids introspection.
+
 ### Nesting Depth
 
 Cap at two levels: `<resource> <action>` or `<resource> <sub-resource> <action>`. Flatten anything deeper with flags.
@@ -66,6 +91,11 @@ Reference impl: [`examples/exemplar-cli/bin/exemplar-cli.mjs`](../examples/exemp
 | Idempotency | `--idempotency-key <key>` (when API supports it) |
 | Concurrency | `--if-match <etag>` (when API supports it) |
 
+For GraphQL actions, the dispatcher automatically exposes `--body <json>` as
+raw GraphQL variables. Resource flags should still exist for common workflows,
+but `--body` remains the escape hatch for full input objects and newly-added
+schema fields.
+
 ### Action-def annotations for upstream API quirks
 
 Two optional keys on an action def let `bin/<api>-cli.mjs` handle common
@@ -101,7 +131,7 @@ Contract: [`knowledge/query-flags-and-broken-list-filters.md`](../examples/exemp
 
 ## Test Override (rigid contract)
 
-**Every generated CLI honors `<API_NAME>_BASE_URL` env var to redirect requests to a mock server.** Default is the real API base URL. Without this, integration tests cannot reach the mock; the validation gate fails generation that omits this.
+**Every generated CLI honors `<API_NAME>_BASE_URL` env var to redirect requests to a mock server.** Default is the real API base URL. Without this, integration tests cannot reach the mock; the validation gate fails generation that omits this. SDK-backed CLIs must still honor the override, even if that means a plain-fetch fallback for tests because the SDK rejects localhost.
 
 ```js
 const BASE_URL = process.env.EXEMPLAR_BASE_URL || "https://api.exemplar.test";
@@ -345,6 +375,11 @@ Run after endpoint parsing. Each detected nuance produces a corresponding artifa
 | Units / formats | "amounts in cents", "ISO-8601" | `knowledge/<topic>.md` `type: business-rule` |
 | Sequencing | "must X before Y" | `knowledge/<topic>.md` `type: business-rule` |
 | Plan/tier limits | "free tier", "available on plan X" | `knowledge/plan-limits.md` |
+| GraphQL-first API | schema docs, queries/mutations, Relay connections | `nuances.graphqlFirst=true`, GraphQL action defs, raw `gql` + `introspect` helpers |
+| Official Node SDK/API client available | docs provide/recommend an npm package, SDK handles auth/version/session/transport details | Prefer thin wrapper over the package; `nuances.officialSdk=true`, dependency in `package.json`, `knowledge/why-official-sdk.md`, mock fallback preserved |
+| Cost-based throttling | GraphQL cost extensions, leaky bucket prose | `knowledge/cost-based-throttling.md` |
+| Global IDs | `gid://`, opaque IDs, node IDs | `knowledge/gid-format.md` |
+| Staged upload flow | pre-signed upload target plus finalize mutation | `knowledge/staged-uploads.md`, `multiPart` nuance, postProcess flow |
 
 Detection heuristics for each row are documented inline in [`references/validation-gate.md`](validation-gate.md).
 
@@ -410,7 +445,7 @@ Generated SKILL.md preamble must include: **"Before running any command, read ev
 
 - Node.js ESM (`.mjs`)
 - `"type": "module"`, `"engines": { "node": ">=20" }`
-- **Zero external npm dependencies**
+- **Zero external npm dependencies by default.** Exception: prefer a provider official or clearly recommended Node SDK/API client when it handles meaningful API complexity: auth sessions, API-version headers, pagination, retries, serialization, GraphQL helpers, staged uploads, or provider-specific signing. Record official/recommended packages as `nuances.officialSdk=true`, explain the choice in `knowledge/why-official-sdk.md`, keep dependencies minimal, and preserve mockable tests through `<API>_BASE_URL`.
 - Native `fetch`, `node:util` `parseArgs`, `node:fs`, `node:path`, `node:crypto`, `node:http`
 
 ### Code Structure
@@ -435,6 +470,13 @@ test/_mock-server.mjs       mock-server helper
 test/_helpers.mjs           run/runJson child-process harness
 ```
 
+`lib/api.mjs` also exports `graphqlRequest` and `paginateGraphql`; generated
+GraphQL CLIs should use those helpers instead of writing a second HTTP stack.
+If a Node SDK/API client is selected, keep the CLI as a thin wrapper: command
+handlers parse flags and shape inputs, a small adapter owns the provider
+client, and output/error normalization remains in clify code. Keep dry-run
+output, structured errors, and localhost overrides intact.
+
 Legacy single-file shape (still passes the gate, but new generation uses the split above):
 
 ```
@@ -450,7 +492,9 @@ Every command is one of:
 - `<api>-cli <resource> <action> [flags]` — the default shape
 - `<api>-cli login [--token <t>] [--status]` — auth management (when scheme ≠ none)
 
-Resources, actions, and the registry that maps them to method/path/flags all live under `commands/<resource>.mjs`. The bin file imports each, builds a single `REGISTRY` object, and dispatches.
+Resources, actions, and the registry that maps them to method/path/flags (REST)
+or kind/query/variables (GraphQL) all live under `commands/<resource>.mjs`. The
+bin file imports each, builds a single `REGISTRY` object, and dispatches.
 
 ### Pluggable auth
 
@@ -467,7 +511,7 @@ For `oauth-refresh`, the exemplar's `applyAuth` is async (it may await a refresh
 
 ### Agent skill (umbrella layout)
 
-Generated repos ship **one** skill directory: `skills/<api-name>-cli/` with:
+Generated repos ship **one public skill directory**: `skills/<api-name>-cli/` with:
 
 | Path | Purpose |
 |---|---|
@@ -477,9 +521,9 @@ Generated repos ship **one** skill directory: `skills/<api-name>-cli/` with:
 | `references/knowledge/` | Bundled copy of repo-root `knowledge/` for standalone skill installs |
 | `references/knowledge-authoring.md` | Optional — how to extend knowledge |
 
-`.claude-plugin/plugin.json` should set `"skills": ["./skills/<api-name>-cli"]` so subfolders under `skills/` that are not skills (e.g. scripts) are not scanned.
+`.claude-plugin/plugin.json` MUST set `"skills": ["./skills/<api-name>-cli"]` exactly. Do not publish sibling shard skills such as `<api>-auth`, `<api>-resources`, `<api>-knowledge`, or `<api>-workflow`; put that material under `references/` inside the umbrella skill. Put aliases and alternate API names in the umbrella skill description/triggers, not in duplicate sibling skill directories. Hidden implementation folders such as `skills/.internal/` are allowed only if they are not referenced by the plugin manifest and are not user-facing skills.
 
-**Legacy layouts** still pass `clify validate`: `skills/<api-name>-cli-workflow/SKILL.md` (old modular primary) or `skills/<api-slug>/SKILL.md` where `<api-slug>` is `<package-name>` with the `-cli` suffix stripped.
+The validator fails generated repos with multiple public `skills/*/SKILL.md` directories or non-canonical `plugin.json.skills` wiring.
 
 ### Three-level help
 
@@ -593,7 +637,8 @@ Reference: [`examples/exemplar-cli/.github/workflows/test.yml`](../examples/exem
 }
 ```
 
-No dependencies. No devDependencies.
+No dependencies by default. Add a dependency only for a selected SDK/API client
+or test/runtime package that is explicitly justified in `knowledge/`.
 
 ---
 

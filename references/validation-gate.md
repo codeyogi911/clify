@@ -21,12 +21,14 @@ Exit code: 0 on pass, 1 on any failure. The scaffold skill calls this at step 11
 | `package.json` shape | `name`, `version`, `description`, `type: "module"`, `engines.node >= 20`, `bin` object, `scripts.test` |
 | `.claude-plugin/plugin.json` present | File exists |
 | `.claude-plugin/plugin.json` shape | `name`, `version`, `description`, `skills`, `capabilities` |
+| One umbrella skill | `plugin.json.skills` is exactly `["./skills/<package-name>"]` |
+| No public skill shards | `skills/` has no public sibling `SKILL.md` dirs besides `skills/<package-name>/` |
 | Skill paths resolve | `plugin.json.skills` (string path or array of paths per Claude Code schema) resolves to directories each containing a `SKILL.md` |
 | Skill frontmatter | Each SKILL.md begins with `---` and contains `name:` + `description:` |
 | `.claude-plugin/marketplace.json` present | File exists |
 | `.claude-plugin/marketplace.json` shape | `name`, `version`, `description`, `source` |
 | Cross-manifest match | `name`, `version`, `description` match across `package.json` ↔ `plugin.json` ↔ `marketplace.json` |
-| `.clify.json` present + valid | Required fields: `apiName`, `docsUrl`, `contentHash`, `generatedAt`, `clifyVersion`, `auth` (with `envVar`, `scheme ∈ {bearer,api-key-header,basic,none}`, `validationCommand`) |
+| `.clify.json` present + valid | Required fields: `apiName`, `docsUrl`, `contentHash`, `generatedAt`, `clifyVersion`, `auth` (with `envVar`, `scheme ∈ {bearer,api-key-header,basic,none,oauth-refresh}`, `validationCommand`) |
 | `.env.example` present | If `auth.scheme ≠ none`, must include `@required` and `@how-to-get` annotations on the auth var |
 | BASE_URL override | CLI source references `<API_NAME>_BASE_URL` env var |
 | `bin` path resolves | The path in `package.json` `bin` exists |
@@ -37,7 +39,7 @@ Exit code: 0 on pass, 1 on any failure. The scaffold skill calls this at step 11
 |---|---|
 | `coverage.json` present + parseable | |
 | Required fields | `totalParsed`, `totalIncluded`, `totalDropped`, `endpoints` |
-| Per-endpoint shape | Each entry has `method`, `path`. Included entries have `resource` + `action`. Dropped entries have `dropped: true` + `reason ∈ {user-excluded-step-7, deprecated-in-docs, beta-flagged, internal-only, nesting-depth-cap, webhook-not-cli-shaped, streaming-not-cli-shaped}` |
+| Per-endpoint shape | Each entry has `method`, `path`. Included entries have `resource` + `action`. Dropped entries have `dropped: true` + `reason ∈ {user-excluded-step-7, deprecated-in-docs, beta-flagged, internal-only, nesting-depth-cap, webhook-not-cli-shaped, streaming-not-cli-shaped, sibling-asymmetry-confirmed}` |
 | Counts match | `totalIncluded` and `totalDropped` match what's in `endpoints[]` |
 | No silent drops | `included: false` always paired with `dropped: true` + a valid reason |
 
@@ -54,7 +56,7 @@ Exit code: 0 on pass, 1 on any failure. The scaffold skill calls this at step 11
 
 ## 4. nuances
 
-The hard-fail set is intentionally small (4 signals). Soft signals produce **warnings** — visible in the report but never failing the gate. The full table is in [`conventions.md`](conventions.md#nuance-detection).
+The hard-fail set is intentionally small: core transport signals plus declared substrate promises. Soft signals produce **warnings** — visible in the report but never failing the gate. The full table is in [`conventions.md`](conventions.md#nuance-detection).
 
 ### Hard-fail signals
 
@@ -65,10 +67,12 @@ The hard-fail set is intentionally small (4 signals). Soft signals produce **war
 | `nuances.multiPart` non-empty | `multipart/form-data` content type | CLI source contains `FormData`/`multipart`; integration test posts a file via `--file` |
 | `nuances.deprecated` non-empty | `deprecated: true` in OpenAPI; "deprecated" prose | Either a `knowledge/deprecated-*.md` file or a `coverage.json` entry with `reason: deprecated-in-docs` |
 | `nuances.businessRules > 0` | Prose-mined rules (units, sequencing, tier limits) | At least one `knowledge/*.md` with `type: business-rule` frontmatter |
+| `nuances.graphqlFirst === true` | GraphQL schema/docs | Command source contains `kind: "graphql"` action defs and `coverage.json` uses `/graphql#resource.action` or `/graphql.json#resource.action` paths |
+| `nuances.officialSdk === true` | Official/recommended Node SDK/API client selected | `package.json` declares a dependency and `knowledge/why-official-sdk.md` explains why the CLI wraps it |
 
 ### Soft-warn signals
 
-`rateLimits`, `authScopes`, `conditional`, enums, units, sequencing, plan/tier limits — see [`conventions.md`](conventions.md#nuance-detection). These are emitted to `warnings[]` in the report.
+`rateLimits`, `authScopes`, `conditional`, enums, units, sequencing, plan/tier limits, missing optional GraphQL raw/introspection helpers — see [`conventions.md`](conventions.md#nuance-detection). These are emitted to `warnings[]` in the report.
 
 ### Detection heuristics (used by the scaffold skill, not the gate)
 
@@ -83,6 +87,8 @@ The scaffold skill is the one that *populates* `nuances`. The gate just verifies
 - **conditional** — `If-Match`, `If-None-Match`, or `ETag` documented.
 - **enums** — OpenAPI `enum:`, "must be one of" prose.
 - **business-rule** — prose pattern-matched on units ("amounts in cents", "weights in grams"), formats ("ISO-8601", "epoch seconds", "starts with `cus_`"), defaults ("if X is omitted, defaults to Y"), sequencing ("must X before Y"), plan/tier ("free tier", "available on plan X").
+- **graphqlFirst** — docs present a schema, queries/mutations, Relay connections, or a single GraphQL endpoint.
+- **officialSdk** — docs require/recommend a Node SDK/API client, or the package owns auth/session/API-version/transport behaviour that is risky to reimplement.
 
 ## 5. secrets
 

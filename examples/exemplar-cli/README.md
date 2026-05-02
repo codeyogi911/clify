@@ -76,7 +76,7 @@ See [`.env.example`](./.env.example) for the full annotated env-var list.
 exemplar-cli/
 ├── bin/exemplar-cli.mjs          thin dispatcher
 ├── lib/
-│   ├── api.mjs                   apiRequest + cursor pagination
+│   ├── api.mjs                   apiRequest + REST/GraphQL pagination helpers
 │   ├── auth.mjs                  pluggable auth (bearer | api-key-header | basic | none | oauth-refresh)
 │   ├── config.mjs                ~/.config/exemplar-cli/credentials.json
 │   ├── env.mjs                   .env loader
@@ -96,6 +96,7 @@ exemplar-cli/
 │   ├── _mock-server.mjs          zero-dep HTTP mock
 │   ├── smoke.test.mjs            structural tests
 │   ├── integration.test.mjs      mock-driven CRUD + pagination + multipart
+│   ├── graphql.test.mjs          GraphQL request + connection pagination substrate
 │   └── auth.test.mjs             bearer + OAuth-refresh wiring + login --status
 ├── .clify.json                   metadata read by the validator
 ├── coverage.json                 every endpoint, included or dropped
